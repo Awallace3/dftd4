@@ -10,6 +10,9 @@ DFT-D4 project
 
 Generally Applicable Atomic-Charge Dependent London Dispersion Correction.
 
+Forked from https://github.com/dftd4/dftd4 with a modification to print
+C6s and C8s to C_n.json with --property flag
+
 
 ## Installing
 

@@ -114,6 +114,40 @@ subroutine ascii_atomic_references(unit, mol, disp)
 
 end subroutine ascii_atomic_references
 
+subroutine print_values_wp(arr, name, last)
+   real(wp), intent(in) :: arr(:, :)
+   Character(*) :: name
+   integer :: i, j, last, length = 0
+   Character(len=12) :: field
+
+
+   field = ' "'//name//'": ['
+   length = SIZE(arr, (1))
+
+   write(90, *) field
+   do i = 1, length
+        write(90, *) "["
+        do j = 1, length
+           if (j == length) then
+               write(90, *) arr(j, i)
+            else
+               write(90, *) arr(j, i), ","
+            end if
+        end do
+        if (i == length) then
+            write(90, *) "]"
+        else
+            write(90, *) "],"
+        end if
+   end do
+   if (last == 0) then
+        write(90, *) "],"
+    else
+        write(90, *) "]"
+    end if
+   ! close(90)
+
+end subroutine print_values_wp
 
 subroutine ascii_system_properties(unit, mol, disp, cn, q, c6)
 
@@ -135,8 +169,17 @@ subroutine ascii_system_properties(unit, mol, disp, cn, q, c6)
    !> Atomic dispersion coefficients
    real(wp), intent(in) :: c6(:, :)
 
+   real(wp), DIMENSION(:, :), ALLOCATABLE :: c8
+   integer :: total
+   LOGICAL :: file_exists
+
    integer :: iat, isp, jat
    real(wp) :: sum_c8
+
+   total = SIZE(c6, 1)
+   print *, 'total', total
+   ALLOCATE (c8(total, total))
+
 
    sum_c8 = 0.0_wp
    write(unit, '(a,":")') "Atomic properties (in atomic units)"
@@ -149,6 +192,9 @@ subroutine ascii_system_properties(unit, mol, disp, cn, q, c6)
          & iat, mol%num(isp), mol%sym(isp), cn(iat), q(iat), c6(iat, iat), &
          & c6(iat, iat)*3*disp%r4r2(isp)**2
       do jat = 1, mol%nat
+         ! modification
+         c8(jat, iat) = 3*c6(jat, iat)*disp%r4r2(mol%id(jat))*disp%r4r2(isp)
+         ! modification
          sum_c8 = sum_c8 + 3*c6(jat, iat)*disp%r4r2(mol%id(jat))*disp%r4r2(isp)
       end do
    end do
@@ -162,6 +208,20 @@ subroutine ascii_system_properties(unit, mol, disp, cn, q, c6)
       "molecular C8",  sum_c8
    write(unit, '(40("-"))')
    write(unit, '(a)')
+
+   ! modification
+    INQUIRE(file="C_n.json", EXIST=file_exists)
+   if (file_exists) then
+        open (unit= 90, file="C_n.json", status="old")
+        close (90, status="delete")
+    end if
+   open (unit = 90, file = "C_n.json", status="new")
+   write(90, *) "{"
+   call print_values_wp(c6, 'c6', 0)
+   call print_values_wp(c8, 'c8', 1)
+   write(90, *) "}"
+   close(90)
+   ! modification
 
 end subroutine ascii_system_properties
 

@@ -140,8 +140,28 @@ subroutine get_dispersion_energy(self, mol, trans, cutoff, r4r2, c6, energy)
 
    integer :: iat, jat, izp, jzp, jtr
    real(wp) :: vec(3), r2, cutoff2, r0ij, rrij, c6ij, t6, t8, edisp, dE
+   real(wp), ALLOCATABLE:: c8(:, :)
+
+   LOGICAL :: file_exists
+   integer :: unit
+   unit = 144
+   ALLOCATE(c8, MOLD=c6)
+   print *, "c6size", SIZE(c6)
+   print *, "c8size", SIZE(c8)
+   print *, SQRT(625.0)
+   !TODO: write output files for C6, C8 and pair-interactions
 
    cutoff2 = cutoff*cutoff
+
+   INQUIRE(FILE='data1.json', EXIST=file_exists)
+   IF (file_exists) THEN
+       OPEN(unit=unit, file='data1.json', status='old')
+       CLOSE(unit, status='delete')
+   END IF
+   OPEN(unit=unit, file='data1.json', status='new')
+   write(unit, "(E14.7)") 100.0099999999
+   CLOSE(1)
+
 
    !$omp parallel do schedule(runtime) default(none) reduction(+:energy) &
    !$omp shared(mol, self, c6, trans, cutoff2, r4r2) &

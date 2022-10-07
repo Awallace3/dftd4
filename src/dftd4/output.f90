@@ -137,6 +137,25 @@ subroutine ascii_system_properties(unit, mol, disp, cn, q, c6)
 
    integer :: iat, isp, jat
    real(wp) :: sum_c8
+   LOGICAL :: file_exists
+   integer :: unit2
+   integer :: unit3
+   unit2 = 129
+   unit3 = 130
+
+   INQUIRE(FILE='c6.txt', EXIST=file_exists)
+   IF (file_exists) THEN
+       OPEN(unit=unit2, file='c6.txt', status='old')
+       CLOSE(unit2, status='delete')
+   END IF
+   OPEN(unit=unit2, file='c6.txt', status='new')
+
+   INQUIRE(FILE='c8.txt', EXIST=file_exists)
+   IF (file_exists) THEN
+       OPEN(unit=unit3, file='c8.txt', status='old')
+       CLOSE(unit3, status='delete')
+   END IF
+   OPEN(unit=unit3, file='c8.txt', status='new')
 
    sum_c8 = 0.0_wp
    write(unit, '(a,":")') "Atomic properties (in atomic units)"
@@ -149,7 +168,11 @@ subroutine ascii_system_properties(unit, mol, disp, cn, q, c6)
          & iat, mol%num(isp), mol%sym(isp), cn(iat), q(iat), c6(iat, iat), &
          & c6(iat, iat)*3*disp%r4r2(isp)**2
       do jat = 1, mol%nat
+
          sum_c8 = sum_c8 + 3*c6(jat, iat)*disp%r4r2(mol%id(jat))*disp%r4r2(isp)
+         write(unit2, '(I6,1x,I6,1x,es16.7)') iat, jat, c6(jat, iat)
+         write(unit3, '(I6,1x,I6,1x,es16.7)') iat, jat, 3*c6(jat, iat)*disp%r4r2(mol%id(jat))*disp%r4r2(isp)
+
       end do
    end do
    write(unit, '(61("-"))')
@@ -162,6 +185,8 @@ subroutine ascii_system_properties(unit, mol, disp, cn, q, c6)
       "molecular C8",  sum_c8
    write(unit, '(40("-"))')
    write(unit, '(a)')
+
+   CLOSE(unit2)
 
 end subroutine ascii_system_properties
 
@@ -231,6 +256,17 @@ subroutine ascii_pairwise(unit, mol, pair_disp2, pair_disp3)
    integer :: iat, jat, isp, jsp
    real(wp) :: disp, e2, e3
 
+   LOGICAL :: file_exists
+   integer :: unit2
+   unit2 = 131
+
+   INQUIRE(FILE='pairs.txt', EXIST=file_exists)
+   IF (file_exists) THEN
+       OPEN(unit=unit2, file='pairs.txt', status='old')
+       CLOSE(unit2, status='delete')
+   END IF
+   OPEN(unit=unit2, file='pairs.txt', status='new')
+
    e2 = 0.0_wp
    e3 = 0.0_wp
 
@@ -247,14 +283,16 @@ subroutine ascii_pairwise(unit, mol, pair_disp2, pair_disp3)
          e3 = e3 + pair_disp3(jat, iat)
          disp = pair_disp2(jat, iat) + pair_disp3(jat, iat)
          if (abs(disp) < epsilon(disp)) cycle
-         write(unit, '(2(i6,1x,i4,1x,a4),*(1x,es10.2:,1x,"(",i4,"%)"))') &
+         write(unit, '(2(i6,1x,i4,1x,a4),*(1x,es14.7:,1x,"(",i4,"%)"))') &
             & iat, mol%num(isp), mol%sym(isp), &
             & jat, mol%num(jsp), mol%sym(jsp), &
             & pair_disp2(jat, iat) * autokcal, nint(pair_disp2(jat, iat)/disp*100), &
             & pair_disp3(jat, iat) * autokcal, nint(pair_disp3(jat, iat)/disp*100), &
             & disp * autokcal
+        write(unit2, '(i6,1x,i6,1x,es16.7)') iat, jat, pair_disp2(jat, iat) * autokcal
       end do
    end do
+   close(unit2)
    write(unit, '(82("-"))')
    disp = e2 + e3
    write(unit, '(1x, a, t33,*(1x,es10.2:,1x,"(",i4,"%)"))') &

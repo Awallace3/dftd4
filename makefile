@@ -2,15 +2,12 @@ target build_and_test:
 	cmake -B _build -G Ninja -DCMAKE_INSTALL_PREFIX=$HOME/.local
 	cmake --build _build
 	_build/app/dftd4 dat.xyz --property --param 1.0 1.61679827, 0.44959224, 3.35743605 --mbdscale 0.0 --pair-resolved
-	echo c6.txt start
-	cat c6.txt
-	echo c6.txt end
-	echo c8.txt start
-	cat c8.txt
-	echo c8.txt end
-	echo pairs.txt start
-	cat pairs.txt
-	echo pairs.txt end
+	echo C_n.json start
+	cat C_n.json
+	echo C_n.json end
+	echo pairs.json start
+	cat pairs.json
+	echo pairs.json end
 	cp _build/app/dftd4 ~/.local/bin
 
 
@@ -38,3 +35,10 @@ test_ATM:
 	_build/app/dftd4 mb.xyz --property --param 1.0 1.61679827, 0.44959224, 3.35743605
 	mv .EDISP mb.energy
 	cp _build/app/dftd4 ~/.local/bin
+	_build/app/dftd4 dat.xyz --property --param 1.0 0.9 0.4 5.0
+	test -f C_n.json && echo "C_n.json exists" && echo "copying dftd4 to ~/.local/bin" && cp _build/app/dftd4 ~/.local/bin
+
+target test_props:
+	_build/app/dftd4 dat.xyz --property --param 1.0 0.9 0.4 5.0
+
+.DEFAULT_GOAL := build_and_test

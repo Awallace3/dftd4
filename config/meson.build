@@ -16,6 +16,10 @@
 
 os = host_machine.system()
 fc = meson.get_compiler('fortran')
+cc = fc
+if has_cc
+  cc = meson.get_compiler('c')
+endif
 fc_id = fc.get_id()
 
 if fc_id == 'gcc'
@@ -53,22 +57,22 @@ endif
 if lapack_vendor == 'mkl'
   mkl_dep = []
   if fc_id == 'intel'
-    mkl_dep += fc.find_library('mkl_intel_lp64')
+    mkl_dep += cc.find_library('mkl_intel_lp64')
     if get_option('openmp')
-      mkl_dep += fc.find_library('mkl_intel_thread')
+      mkl_dep += cc.find_library('mkl_intel_thread')
     endif
   elif fc_id == 'gcc'
-    mkl_dep += fc.find_library('mkl_gf_lp64')
+    mkl_dep += cc.find_library('mkl_gf_lp64')
     if get_option('openmp')
-      mkl_dep += fc.find_library('mkl_gnu_thread')
+      mkl_dep += cc.find_library('mkl_gnu_thread')
     endif
   else
     error('MKL not supported for this compiler')
   endif
   if not get_option('openmp')
-    mkl_dep += fc.find_library('mkl_tbb_thread')
+    mkl_dep += cc.find_library('mkl_tbb_thread')
   endif
-  mkl_dep += fc.find_library('mkl_core')
+  mkl_dep += cc.find_library('mkl_core')
   lib_deps += mkl_dep
 
 elif lapack_vendor == 'mkl-rt'
@@ -108,43 +112,18 @@ else
 endif
 
 # Create the tool chain library as subproject
-mctc_dep = dependency('mctc-lib', required: false)
-if not mctc_dep.found()
-  mctc_prj = subproject(
-    'mctc-lib',
-    version: '>=0.2',
-    default_options: [
-      'default_library=static',
-    ],
-  )
-  mctc_dep = mctc_prj.get_variable('mctc_dep')
-
-  if install
-    install_data(
-      mctc_prj.get_variable('mctc_lic'),
-      install_dir: get_option('datadir')/'licenses'/meson.project_name()/'mctc-lib'
-    )
-  endif
-endif
+mctc_dep = dependency(
+  'mctc-lib',
+  version: '>=0.3.0',
+  fallback: ['mctc-lib', 'mctc_dep'],
+  default_options: ['default_library=static'],
+)
 lib_deps += mctc_dep
 
-# Create the tool chain library as subproject
-multicharge_dep = dependency('multicharge', required: false)
-if not multicharge_dep.found()
-  multicharge_prj = subproject(
-    'multicharge',
-    version: '>=0.1',
-    default_options: [
-      'default_library=static',
-    ],
-  )
-  multicharge_dep = multicharge_prj.get_variable('multicharge_dep')
-
-  if install
-    install_data(
-      multicharge_prj.get_variable('multicharge_lic'),
-      install_dir: get_option('datadir')/'licenses'/meson.project_name()/'multicharge'
-    )
-  endif
-endif
+# Create the electrostatic library as subproject
+multicharge_dep = dependency(
+  'multicharge',
+  fallback: ['multicharge', 'multicharge_dep'],
+  default_options: ['default_library=static'],
+)
 lib_deps += multicharge_dep

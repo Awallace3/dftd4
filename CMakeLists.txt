@@ -19,7 +19,7 @@ cmake_minimum_required(VERSION 3.14)
 project(
   "dftd4"
   LANGUAGES "Fortran"
-  VERSION "3.3.0"
+  VERSION "3.4.0"
   DESCRIPTION "Generally Applicable Atomic-Charge Dependent London Dispersion Correction"
 )
 
@@ -75,7 +75,7 @@ target_link_libraries(
   "${PROJECT_NAME}-lib"
   PUBLIC
   "${lib-deps}"
-  "OpenMP::OpenMP_Fortran"
+  "$<$<BOOL:${WITH_OpenMP}>:OpenMP::OpenMP_Fortran>"
 )
 target_include_directories(
   "${PROJECT_NAME}-lib"

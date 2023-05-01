@@ -142,6 +142,8 @@ subroutine get_dispersion_energy(self, mol, trans, cutoff, r4r2, c6, energy)
    real(wp) :: vec(3), r2, cutoff2, r0ij, rrij, c6ij, t6, t8, edisp, dE
    real(wp), ALLOCATABLE:: c8(:, :)
 
+   real(wp) ::  p6, p8, edisp2
+
    LOGICAL :: file_exists
    integer :: unit
    unit = 144
@@ -167,11 +169,14 @@ subroutine get_dispersion_energy(self, mol, trans, cutoff, r4r2, c6, energy)
    !$omp shared(mol, self, c6, trans, cutoff2, r4r2) &
    !$omp private(iat, jat, izp, jzp, jtr, vec, r2, r0ij, rrij, c6ij, &
    !$omp& t6, t8, edisp, dE)
+    ! PRINT *, "iat" !, "jat", "r2**0.5", "r0ij", "edisp", "dE"
    do iat = 1, mol%nat
       izp = mol%id(iat)
       do jat = 1, iat
          jzp = mol%id(jat)
          rrij = 3*r4r2(izp)*r4r2(jzp)
+         ! printing out values...
+         ! print *, iat, jat, r4r2(izp), r4r2(jzp)
          r0ij = self%a1 * sqrt(rrij) + self%a2
          c6ij = c6(jat, iat)
          do jtr = 1, size(trans, 2)
@@ -186,10 +191,18 @@ subroutine get_dispersion_energy(self, mol, trans, cutoff, r4r2, c6, energy)
 
             dE = -c6ij*edisp * 0.5_wp
 
+            ! PRINT *, iat, jat, r2, r0ij, edisp, dE
+            ! PRINT *,c6ij, iat, jat, r2**0.5, r0ij,  edisp, dE
+            PRINT *, iat, jat, r2**0.5, r0ij,  edisp, dE
+
             energy(iat) = energy(iat) + dE
             if (iat /= jat) then
                energy(jat) = energy(jat) + dE
             end if
+            ! self check
+            ! t6 = r2**6/(r2**6 + r0ij**6)
+            ! t8 = r2**8/(r2**8 + r0ij**8)
+            ! self check
          end do
       end do
    end do

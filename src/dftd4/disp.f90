@@ -34,6 +34,41 @@ module dftd4_disp
 
 contains
 
+subroutine print_values_wp(arr, name, last, unit)
+   real(wp), intent(in) :: arr(:, :)
+   INTEGER :: unit
+   Character(*) :: name
+   integer :: i, j, last, length = 0
+   Character(len=12) :: field
+
+
+   field = ' "'//name//'": ['
+   length = SIZE(arr, (1))
+
+   write(unit, *) field
+   do i = 1, length
+        write(unit, *) "["
+        do j = 1, length
+           if (j == length) then
+               write(unit, *) arr(j, i)
+            else
+               write(unit, *) arr(j, i), ","
+            end if
+        end do
+        if (i == length) then
+            write(unit, *) "]"
+        else
+            write(unit, *) "],"
+        end if
+   end do
+   if (last == 0) then
+        write(unit, *) "],"
+    else
+        write(unit, *) "]"
+    end if
+   ! close(90)
+
+end subroutine print_values_wp
 
 !> Wrapper to handle the evaluation of dispersion energy and derivatives
 subroutine get_dispersion(mol, disp, param, cutoff, energy, gradient, sigma)
@@ -58,6 +93,7 @@ subroutine get_dispersion(mol, disp, param, cutoff, energy, gradient, sigma)
 
    !> Dispersion virial
    real(wp), intent(out), contiguous, optional :: sigma(:, :)
+   LOGICAL :: file_exists
 
    logical :: grad
    integer :: mref
@@ -113,6 +149,18 @@ subroutine get_dispersion(mol, disp, param, cutoff, energy, gradient, sigma)
    call get_lattice_points(mol%periodic, mol%lattice, cutoff%disp3, lattr)
    call param%get_dispersion3(mol, lattr, cutoff%disp3, disp%r4r2, &
       & c6, dc6dcn, dc6dq, energies, dEdcn, dEdq, gradient, sigma)
+  ! API for ATM c6's
+    INQUIRE(file="C_n_ATM.json", EXIST=file_exists)
+   if (file_exists) then
+        open (unit= 92, file="C_n_ATM.json", status="old")
+        close (92, status="delete")
+    end if
+   open (unit = 92, file = "C_n_ATM.json", status="new")
+   write(92, *) "{"
+   call print_values_wp(c6, 'c6_ATM', 1, 92)
+   write(92, *) "}"
+   close(92)
+
    if (grad) then
       call d4_gemv(dcndr, dEdcn, gradient, beta=1.0_wp)
       call d4_gemv(dcndL, dEdcn, sigma, beta=1.0_wp)

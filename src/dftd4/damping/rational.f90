@@ -451,10 +451,16 @@ subroutine get_pairwise_dispersion3(self, mol, trans, cutoff, r4r2, c6, energy)
    real(wp) :: r0ij, r0jk, r0ik, r0, r1, r2, r3, r5, rr, fdmp, ang
    real(wp) :: cutoff2, c9, dE
 
+    !> added variables by AMW
+   real(wp) :: e_ATM
+   LOGICAL :: file_exists
+
    if (abs(self%s9) < epsilon(1.0_wp)) return
    cutoff2 = cutoff*cutoff
+   e_ATM = 0
 
-   !$omp parallel do schedule(runtime) default(none) reduction(+:energy) &
+   print *, "disp3"
+   !$omp parallel do schedule(runtime) default(none) reduction(+:energy) reduction(+:e_ATM) &
    !$omp shared(mol, trans, c6, r4r2, cutoff2, self) &
    !$omp private(iat, jat, kat, izp, jzp, kzp, jtr, ktr, vij, vjk, vik, &
    !$omp& r2ij, r2jk, r2ik, c6ij, c6jk, c6ik, triple, r0ij, r0jk, r0ik, r0, &
@@ -498,6 +504,10 @@ subroutine get_pairwise_dispersion3(self, mol, trans, cutoff, r4r2, c6, energy)
                   rr = ang*fdmp
 
                   dE = rr * c9 * triple/6
+                  e_ATM = e_ATM - 6 * dE
+                  ! print *, iat, jat, kat, r0ij, r0, fdmp, ang, dE
+                  ! print *, iat, jat, kat, r0ij, r0ik, r0jk, r0
+                  print *, iat, jat, kat, c6ij, c6ik, c6jk, c9
                   energy(jat, iat) = energy(jat, iat) - dE
                   energy(kat, iat) = energy(kat, iat) - dE
                   energy(iat, jat) = energy(iat, jat) - dE
@@ -509,6 +519,14 @@ subroutine get_pairwise_dispersion3(self, mol, trans, cutoff, r4r2, c6, energy)
          end do
       end do
    end do
+   INQUIRE(file=".ATM", EXIST=file_exists)
+   if (file_exists) then
+        open (unit= 91, file=".ATM", status="old")
+        close (91, status="delete")
+    end if
+   open (unit = 91, file = ".ATM", status="new")
+   write(91, *) e_ATM
+   close(91)
 
 end subroutine get_pairwise_dispersion3
 

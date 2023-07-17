@@ -1,14 +1,18 @@
 target build_and_test:
 	cmake -B _build -G Ninja -DCMAKE_INSTALL_PREFIX=$HOME/.local
 	cmake --build _build
-	_build/app/dftd4 dat.xyz --property --param 1.0 1.61679827, 0.44959224, 3.35743605 --mbdscale 0.0 --pair-resolved
+	# _build/app/dftd4 dat.xyz --property --param 1.0 1.61679827, 0.44959224, 3.35743605 --mbdscale 0.0 --pair-resolved --charge 0
+	_build/app/dftd4 water_dimer.xyz --property --param 1.0 1.61679827, 0.44959224, 3.35743605 --mbdscale 1.0 --pair-resolved --charge 0
+	# mv .EDISP .EDISP1
+	cat .EDISP
+	cat .ATM
+
 	# echo C_n.json start
 	# cat C_n.json
 	# echo C_n.json end
 	# echo pairs.json start
 	# cat pairs.json
 	# echo pairs.json end
-	echo .EDISP
 	cp _build/app/dftd4 ~/.local/bin
 
 test_edisp:

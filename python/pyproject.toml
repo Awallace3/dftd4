@@ -1,10 +1,10 @@
 [build-system]
-requires = ["meson-python", "cffi"]
+requires = ["meson-python", "cffi", "setuptools"]
 build-backend = "mesonpy"
 
 [project]
 name = "dftd4"
-version = "3.4.0"
+version = "3.7.0"
 description = "Python API of the DFT-D4 project"
 readme = "README.rst"
 license.text = "LGPL-3.0-or-later"
@@ -17,6 +17,9 @@ classifiers = [
   "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering :: Chemistry",
   "Topic :: Scientific/Engineering :: Physics",
 ]
@@ -25,7 +28,10 @@ dependencies = [
    "cffi",
    "numpy",
 ]
-optional-dependencies.ase = ["ase"]
+optional-dependencies.ase = [
+  "ase<3.23; python_version < '3.8'",
+  "ase; python_version >= '3.8'",
+]
 optional-dependencies.qcschema = ["qcelemental"]
 optional-dependencies.pyscf = ["pyscf"]
 optional-dependencies.test = [

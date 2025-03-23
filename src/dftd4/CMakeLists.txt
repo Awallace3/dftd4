@@ -16,12 +16,13 @@
 
 add_subdirectory("damping")
 add_subdirectory("data")
+add_subdirectory("model")
 
 set(dir "${CMAKE_CURRENT_SOURCE_DIR}")
 
 list(
   APPEND srcs
-  "${dir}/blas.f90"
+  "${dir}/blas.F90"
   "${dir}/charge.f90"
   "${dir}/cutoff.f90"
   "${dir}/damping.f90"
@@ -29,6 +30,7 @@ list(
   "${dir}/disp.f90"
   "${dir}/model.f90"
   "${dir}/ncoord.f90"
+  "${dir}/numdiff.f90"
   "${dir}/output.f90"
   "${dir}/param.f90"
   "${dir}/reference.f90"

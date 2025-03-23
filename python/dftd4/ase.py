@@ -38,8 +38,9 @@ Supported keywords are
  Keyword                  Default      Description
 ======================== ============ ============================================
  method                   None         Method to calculate dispersion for
- params_tweaks            None        Optional dict with the damping parameters
+ params_tweaks            None         Optional dict with the damping parameters
  cache_api                True         Reuse generate API objects (recommended)
+ model                    d4           Used dispersion Model (D4S or D4 (default))
 ======================== ============ ============================================
 
 The params_tweaks dict contains the damping parameters, at least s8, a1 and a2
@@ -87,16 +88,17 @@ except ModuleNotFoundError:
 
 from typing import List, Optional
 
-from .interface import DispersionModel, DampingParam
+from ase.atoms import Atoms
 from ase.calculators.calculator import (
+    CalculationFailed,
     Calculator,
     InputError,
-    CalculationFailed,
     all_changes,
 )
 from ase.calculators.mixing import SumCalculator
-from ase.atoms import Atoms
-from ase.units import Hartree, Bohr
+from ase.units import Bohr, Hartree
+
+from .interface import DampingParam, DispersionModel
 
 
 class DFTD4(Calculator):
@@ -124,6 +126,7 @@ class DFTD4(Calculator):
         "method": None,
         "params_tweaks": {},
         "cache_api": True,
+        "model" : "d4"
     }
 
     _disp = None
@@ -214,6 +217,7 @@ class DFTD4(Calculator):
                 _charge,
                 _cell / Bohr,
                 _periodic,
+                model=self.parameters.get("model"),
             )
 
         except RuntimeError:

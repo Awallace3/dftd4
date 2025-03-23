@@ -18,8 +18,10 @@ dftd4_exe = executable(
   meson.project_name(),
   sources: files(
     'main.f90',
+    'argument.f90',
     'cli.f90',
     'driver.f90',
+    'help.f90',
   ),
   dependencies: dftd4_dep,
   install: install,
@@ -28,6 +30,9 @@ dftd4_exe = executable(
 
 test('app-version', dftd4_exe, args: '--version')
 test('app-help', dftd4_exe, args: '--help')
+test('app-help-run', dftd4_exe, args: ['run', '--help'])
+test('app-help-param', dftd4_exe, args: ['param', '--help'])
+test('app-param-list', dftd4_exe, args: ['param', '--list'])
 test('app-license', dftd4_exe, args: '--license')
 test('app-citation', dftd4_exe, args: '--citation')
 test('app-noargs', dftd4_exe, should_fail: true)
@@ -46,6 +51,18 @@ test(
   ],
 )
 test(
+  'app-energy-d4s',
+  app_tester,
+  args: [
+    dftd4_exe,
+    files('01-energy-d4s.json'),
+    files('01-ammonia.tmol'),
+    '--noedisp',
+    '--func', 'tpssh',
+    '--model', 'D4S'
+  ],
+)
+test(
   'app-gradient',
   app_tester,
   args: [
@@ -53,6 +70,20 @@ test(
     files('02-gradient.json'),
     '--noedisp',
     '--func', 'scan',
+    '--grad',
+    '--',
+    files('02-nitralin.mol'),
+  ],
+)
+test(
+  'app-gradient-d4s',
+  app_tester,
+  args: [
+    dftd4_exe,
+    files('02-gradient-d4s.json'),
+    '--noedisp',
+    '--func', 'scan',
+    '--model', 'D4S',
     '--grad',
     '--',
     files('02-nitralin.mol'),
@@ -77,5 +108,47 @@ test(
     '--noedisp',
     '--pair-resolved',
     '--func', 'b3lyp',
+  ],
+)
+
+# r2SCAN-3c modifies s9, ga, gc, hence, requiring additional tests:
+# - selection via functional name
+# - check if s9, ga, gc can still be modified when name is given
+# - full manual specification via command line
+test(
+  'app-r2scan3c',
+  app_tester,
+  args: [
+    dftd4_exe,
+    files('05-r2scan3c.json'),
+    files('04-caffeine.xyz'),
+    '--noedisp',
+    '--func', 'r2scan-3c',
+  ],
+)
+test(
+  'app-r2scan3c-mod',
+  app_tester,
+  args: [
+    dftd4_exe,
+    files('06-r2scan3c-mod.json'),
+    files('04-caffeine.xyz'),
+    '--noedisp',
+    '--func', 'r2scan-3c',
+    '--zeta', '4.0', '5.0',
+    '--mbdscale', '1.0',
+  ],
+)
+test(
+  'app-r2scan3c-cli',
+  app_tester,
+  args: [
+    dftd4_exe,
+    files('05-r2scan3c.json'),
+    files('04-caffeine.xyz'),
+    '--noedisp',
+    '--param', '1.0', '0.0', '0.42', '5.65',
+    '--mbdscale', '2.0',
+    '--zeta', '2.0', '1.0',
   ],
 )

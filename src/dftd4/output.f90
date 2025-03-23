@@ -21,7 +21,7 @@ module dftd4_output
    use mctc_io_math, only : matinv_3x3
    use dftd4_damping, only : damping_param
    use dftd4_damping_rational, only : rational_damping_param
-   use dftd4_model, only : d4_model
+   use dftd4_model, only : dispersion_model
    use dftd4_version, only : get_dftd4_version
    implicit none
    private
@@ -36,6 +36,7 @@ contains
 
 
 subroutine ascii_atomic_radii(unit, mol, disp)
+   !DEC$ ATTRIBUTES DLLEXPORT :: ascii_atomic_radii
 
    !> Unit for output
    integer, intent(in) :: unit
@@ -44,7 +45,7 @@ subroutine ascii_atomic_radii(unit, mol, disp)
    class(structure_type), intent(in) :: mol
 
    !> Dispersion model
-   class(d4_model), intent(in) :: disp
+   class(dispersion_model), intent(in) :: disp
 
    integer :: isp
 
@@ -68,6 +69,7 @@ end subroutine ascii_atomic_radii
 
 
 subroutine ascii_atomic_references(unit, mol, disp)
+   !DEC$ ATTRIBUTES DLLEXPORT :: ascii_atomic_references
 
    !> Unit for output
    integer, intent(in) :: unit
@@ -76,7 +78,7 @@ subroutine ascii_atomic_references(unit, mol, disp)
    class(structure_type), intent(in) :: mol
 
    !> Dispersion model
-   class(d4_model), intent(in) :: disp
+   class(dispersion_model), intent(in) :: disp
 
    integer :: isp, iref, mref
 
@@ -151,6 +153,7 @@ subroutine print_values_wp(arr, name, last, unit)
 end subroutine print_values_wp
 
 subroutine ascii_system_properties(unit, mol, disp, cn, q, c6)
+   !DEC$ ATTRIBUTES DLLEXPORT :: ascii_system_properties
 
    !> Unit for output
    integer, intent(in) :: unit
@@ -159,7 +162,7 @@ subroutine ascii_system_properties(unit, mol, disp, cn, q, c6)
    class(structure_type), intent(in) :: mol
 
    !> Dispersion model
-   class(d4_model), intent(in) :: disp
+   class(dispersion_model), intent(in) :: disp
 
    !> Coordination numbers
    real(wp), intent(in) :: cn(:)
@@ -251,6 +254,7 @@ end subroutine ascii_system_properties
 
 
 subroutine ascii_results(unit, mol, energy, gradient, sigma)
+   !DEC$ ATTRIBUTES DLLEXPORT :: ascii_results
 
    !> Unit for output
    integer, intent(in) :: unit
@@ -302,6 +306,7 @@ end subroutine ascii_results
 
 
 subroutine ascii_pairwise(unit, mol, pair_disp2, pair_disp3)
+   !DEC$ ATTRIBUTES DLLEXPORT :: ascii_pairwise
 
    !> Unit for output
    integer, intent(in) :: unit
@@ -369,6 +374,7 @@ end subroutine ascii_pairwise
 
 
 subroutine ascii_damping_param(unit, param, method)
+   !DEC$ ATTRIBUTES DLLEXPORT :: ascii_damping_param
 
    !> Unit for output
    integer, intent(in) :: unit
@@ -385,8 +391,11 @@ subroutine ascii_damping_param(unit, param, method)
       if (present(method)) then
          write(unit, '(a, "-")', advance="no") method
       end if
-      write(unit, '(a)') &
-         & trim(merge("D4-ATM", "D4    ", abs(param%s9) > 0))
+      if (abs(param%s9) > 0) then
+         write(unit, '(a)') "D4-ATM"
+      else
+         write(unit, '(a)') "D4"
+      end if
       write(unit, '(21("-"))')
       write(unit, '(a4, t10, f10.4)') &
          & "s6", param%s6, &
@@ -403,6 +412,7 @@ end subroutine ascii_damping_param
 
 
 subroutine turbomole_gradlatt(mol, fname, energy, sigma, stat)
+   !DEC$ ATTRIBUTES DLLEXPORT :: turbomole_gradlatt
    type(structure_type),intent(in) :: mol
    character(len=*),intent(in) :: fname
    real(wp),intent(in) :: energy
@@ -492,6 +502,7 @@ end subroutine turbomole_gradlatt
 
 
 subroutine turbomole_gradient(mol, fname, energy, gradient, stat)
+   !DEC$ ATTRIBUTES DLLEXPORT :: turbomole_gradient
    type(structure_type),intent(in) :: mol
    character(len=*),intent(in) :: fname
    real(wp),intent(in) :: energy
@@ -601,13 +612,15 @@ subroutine getline(unit,line,iostat)
 end subroutine getline
 
 
-subroutine json_results(unit, indentation, energy, gradient, sigma, cn, q, c6, alpha, &
-      & pairwise_energy2, pairwise_energy3)
+subroutine json_results(unit, indentation, energy, gradient, sigma, hessian, &
+      & cn, q, c6, alpha, pairwise_energy2, pairwise_energy3)
+   !DEC$ ATTRIBUTES DLLEXPORT :: json_results
    integer, intent(in) :: unit
    character(len=*), intent(in), optional :: indentation
    real(wp), intent(in), optional :: energy
    real(wp), intent(in), optional :: gradient(:, :)
    real(wp), intent(in), optional :: sigma(:, :)
+   real(wp), intent(in), optional :: hessian(:, :, :, :)
    real(wp), intent(in), optional :: cn(:)
    real(wp), intent(in), optional :: q(:)
    real(wp), intent(in), optional :: c6(:, :)
@@ -646,6 +659,13 @@ subroutine json_results(unit, indentation, energy, gradient, sigma, cn, q, c6, a
       if (allocated(indent)) write(unit, '(/,a)', advance='no') repeat(indent, 1)
       write(unit, jsonkey, advance='no') 'gradient'
       array = reshape(gradient, [size(gradient)])
+      call write_json_array(unit, array, indent)
+   end if
+   if (present(hessian)) then
+      write(unit, '(",")', advance='no')
+      if (allocated(indent)) write(unit, '(/,a)', advance='no') repeat(indent, 1)
+      write(unit, jsonkey, advance='no') 'hessian'
+      array = reshape(hessian, [size(hessian)])
       call write_json_array(unit, array, indent)
    end if
    if (present(cn)) then
@@ -709,11 +729,13 @@ subroutine write_json_array(unit, array, indent)
 end subroutine write_json_array
 
 
-subroutine tagged_result(unit, energy, gradient, sigma)
+subroutine tagged_result(unit, energy, gradient, sigma, hessian)
+   !DEC$ ATTRIBUTES DLLEXPORT :: tagged_result
    integer, intent(in) :: unit
    real(wp), intent(in), optional :: energy
    real(wp), intent(in), optional :: gradient(:, :)
    real(wp), intent(in), optional :: sigma(:, :)
+   real(wp), intent(in), optional :: hessian(:, :, :, :)
    character(len=*), parameter :: tag_header = &
       & '(a,t20,":",a,":",i0,":",*(i0:,","))'
 
@@ -722,12 +744,16 @@ subroutine tagged_result(unit, energy, gradient, sigma)
       write(unit, '(3es24.16)') energy
    end if
    if (present(gradient)) then
-      write(unit, tag_header) "gradient", "real", 2, 3, size(gradient, 2)
+      write(unit, tag_header) "gradient", "real", 2, shape(gradient)
       write(unit, '(3es24.16)') gradient
    end if
    if (present(sigma)) then
-      write(unit, tag_header) "virial", "real", 2, 3, 3
+      write(unit, tag_header) "virial", "real", 2, shape(sigma)
       write(unit, '(3es24.16)') sigma
+   end if
+   if (present(hessian)) then
+      write(unit, tag_header) "hessian", "real", 4, shape(hessian)
+      write(unit, '(3es24.16)') hessian
    end if
 
 end subroutine tagged_result

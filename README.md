@@ -237,7 +237,41 @@ For an overview over all command line arguments use the `--help` argument or che
 ## Parameters
 
 DFT-D4 is parametrized for plenty of density functionals.
-The available parameters are listed in the [parameters.toml file](https://github.com/dftd4/dftd4/blob/main/assets/parameters.toml).
+The available parameters are listed in the [parameters.toml file](https://github.com/dftd4/dftd4/blob/main/assets/parameters.toml) or with the following command.
+
+```sh
+dftd4 param --list
+```
+
+While the functionals can be selected with their common names (e.g., `PBE`), the [libxc](https://www.tddft.org/programs/libxc/functionals/) names can also be used (e.g., `GGA_X_PBE:GGA_C_PBE`).
+
+```sh
+dftd4 --func PBE coord
+dftd4 --func GGA_X_PBE:GGA_C_PBE coord
+```
+
+The exchange and correlation functional must be separated by a colon.
+All names are case-insensitive.
+
+<details>
+<summary>Note on ωB97X-type functionals</summary>
+
+Since there has been some confusion concerning the different ωB97X functionals, we provide a detailed summary: 
+
+- [ωB97X](https://doi.org/10.1063/1.2834918) (original functional, 2008, parameters: `wb97x-2008`)
+- [ωB97X-D](https://doi.org/10.1039/B810189B) (re-optimization of ωB97X to include dispersion correction, 2008, no D4 parameters)
+- [ωB97X-D3](https://doi.org/10.1021/ct300715s) (re-optimization of ωB97X-D with improved dispersion corrections, D3(0), 2013, no D4 parameters)
+- [ωB97X-V](https://doi.org/10.1039/C3CP54374A) (new functional, different from the above ωB97X's and not just a re-optimization for VV10 dispersion, 2013)
+- [ωB97X-D4](https://doi.org/10.1002/jcc.26411) (ωB97X-V with D4 dispersion instead of VV10 dispersion, parameters: `wb97x`)
+- [ωB97X-D4rev](https://doi.org/10.1063/5.0133026) (revised D4 parameters for ωB97X-V with D4 dispersion instead of VV10 dispersion, parameters: `wb97x-rev`)
+- [ωB97X-3c](https://doi.org/10.1063/5.0133026) (Composite "3c" method based on ωB97X-V, parameters: `wb97x-3c`)
+
+Note that the ωB97X parameters (`wb97x-2008`) cannot be used for the ωB97X-V functional (`wb97x`, `wb97x-rev`).
+We recommend the revised D4 parameters for ωB97X-V (`wb97x-rev`).
+
+</details>
+
+<br>
 
 You can add new functionals using to the TOML file by adding a new subtable
 
@@ -283,13 +317,13 @@ pkg-config --modversion dftd4
 
 If your ``dftd4`` installation is not findable, you have to update your environment variables.
 One option is to provide a module file for your ``dftd4`` installation.
-The example module file below can be placed in your ``MODULEPATH`` to provide access to an installation in ``~/opt/dftd4/3.4.0``.
+The example module file below can be placed in your ``MODULEPATH`` to provide access to an installation in ``~/opt/dftd4/3.7.0``.
 Retry the above comment after loading the ``dftd4`` module and adjust the module file until ``pkg-config`` finds your installation.
 
 ```lua
--- dftd4/3.4.0.lua
+-- dftd4/3.7.0.lua
 local name = "dftd4"
-local version = "3.4.0"
+local version = "3.7.0"
 local prefix = pathJoin(os.getenv("HOME"), "opt", name, version)
 local libdir = "lib"  -- or lib64
 
@@ -313,6 +347,16 @@ CPP_OPTIONS += -DDFTD4
 LLIBS       += $(shell pkg-config --libs dftd4)
 INCS        += $(shell pkg-config --cflags dftd4)
 ```
+
+Depending on how you built DFT-D4, DFT-D4's dependencies might not be properly recognized during the VASP build. Try to explicitly add them to the link line.
+
+```make
+CPP_OPTIONS += -DDFTD4
+LLIBS       += $(shell pkg-config --libs dftd4) -lmulticharge -lmctc-lib -lmstore
+INCS        += $(shell pkg-config --cflags dftd4)
+```
+
+If you still run into issues, check out [VASP-related issues](https://github.com/dftd4/dftd4/issues?q=label%3Avasp%20) on the ``dftd4`` issue tracker.
 
 
 ### C API
@@ -379,6 +423,24 @@ chemrxiv: [10.26434/chemrxiv.7430216](https://doi.org/10.26434/chemrxiv.7430216.
 Eike Caldeweyher, Jan-Michael Mewes, Sebastian Ehlert and Stefan Grimme, *Phys. Chem. Chem. Phys.*, **2020**, 22, 8499-8512.
 DOI: [10.1039/D0CP00502A](https://doi.org/10.1039/D0CP00502A)
 chemrxiv: [10.26434/chemrxiv.10299428](https://doi.org/10.26434/chemrxiv.10299428.v1)
+
+<br>
+
+In the range-separate hybrid context:
+
+Marvin Friede, Sebastian Ehlert, Stefan Grimme and Jan-Michael Mewes, *J. Chem. Theory Comput.*, **2023**, 19 (22), 8097-8107.
+DOI: [10.1021/acs.jctc.3c00717](10.1021/acs.jctc.3c00717)
+
+<br>
+
+Extension to Fr, Ra, and full Actinide series:
+
+Lukas Wittmann, Igor Gordiy, Marvin Friede, Benjamin Helmich-Paris, Stefan Grimme, Andreas Hansen and Markus Bursch, *Phys. Chem. Chem. Phys.*, **2024**, 26, 21379-21394.
+DOI: [10.1039/D4CP01514B](10.1039/D4CP01514B)
+
+<br>
+
+Citations can also be viewed via `dftd4 --citation` or in the [BibTeX file](CITATION.bib).
 
 
 ## License

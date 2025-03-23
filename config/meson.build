@@ -22,6 +22,10 @@ if has_cc
 endif
 fc_id = fc.get_id()
 
+# Treat Intel LLVM compiler as standard Intel compiler for compatibility
+if fc_id == 'intel-llvm'
+  fc_id = 'intel'
+endif
 if fc_id == 'gcc'
   add_project_arguments(
     '-ffree-line-length-none',
@@ -54,15 +58,23 @@ if lapack_vendor == 'auto'
   endif
 endif
 
+if get_option('ilp64')
+  ilp64 = true
+  add_project_arguments('-DIK=i8', language:'fortran')
+else
+  add_project_arguments('-DIK=i4', language:'fortran')
+  ilp64 = false
+endif
+
 if lapack_vendor == 'mkl'
   mkl_dep = []
   if fc_id == 'intel'
-    mkl_dep += cc.find_library('mkl_intel_lp64')
+    mkl_dep += cc.find_library(ilp64 ? 'mkl_intel_ilp64' : 'mkl_intel_lp64') 
     if get_option('openmp')
       mkl_dep += cc.find_library('mkl_intel_thread')
     endif
   elif fc_id == 'gcc'
-    mkl_dep += cc.find_library('mkl_gf_lp64')
+    mkl_dep += cc.find_library(ilp64 ? 'mkl_gf_ilp64' : 'mkl_gf_lp64')
     if get_option('openmp')
       mkl_dep += cc.find_library('mkl_gnu_thread')
     endif
@@ -76,37 +88,53 @@ if lapack_vendor == 'mkl'
   lib_deps += mkl_dep
 
 elif lapack_vendor == 'mkl-rt'
-  mkl_dep = fc.find_library('mkl_rt')
+  mkl_dep = cc.find_library('mkl_rt')
   lib_deps += mkl_dep
 
 elif lapack_vendor == 'openblas'
-  openblas_dep = dependency('openblas', required: false)
+  openblas_dep = dependency( ilp64 ? 'openblas64' : 'openblas', required: false)
   if not openblas_dep.found()
-    openblas_dep = fc.find_library('openblas')
+    openblas_dep = cc.find_library( ilp64 ? 'openblas64' : 'openblas')
   endif
   lib_deps += openblas_dep
   if not fc.links('external dsytrs; call dsytrs(); end', dependencies: openblas_dep)
-    lapack_dep = dependency('lapack', required: false)
+    lapack_dep = dependency(ilp64 ? 'lapack64' : 'lapack', required: false)
     if not lapack_dep.found()
-      lapack_dep = fc.find_library('lapack')
+      lapack_dep = cc.find_library(ilp64 ? 'lapack64' : 'lapack')
     endif
     lib_deps += lapack_dep
   endif
 
 elif lapack_vendor == 'custom'
-  foreach lib: get_option('custom_libraries')
-    lib_deps += fc.find_library(lib)
-  endforeach
+  custom_deps = []
+  libs = get_option('custom_libraries')
+  if libs[0].startswith('-L')
+    foreach lib: libs
+      if lib != libs[0]
+        custom_deps += cc.find_library(lib, dirs: libs[0].substring(2))
+      endif
+    endforeach
+  else
+    foreach lib: libs
+      custom_deps += cc.find_library(lib)
+    endforeach
+  endif
+  if (not fc.links('external dsytrs; call dsytrs(); end', dependencies: (get_option('openmp') ? [custom_deps, omp_dep] : [custom_deps])))
+    error('Custom LAPACK libraries do not link')
+  elif (not fc.links('external dsytrs; call dgemm(); end', dependencies: (get_option('openmp') ? [custom_deps, omp_dep] : [custom_deps])))
+    error('Custom BLAS libraries do not link')
+  endif
+  lib_deps += custom_deps
 
 else
-  lapack_dep = dependency('lapack', required: false)
+  lapack_dep = dependency(ilp64 ? 'lapack64' : 'lapack', required: false)
   if not lapack_dep.found()
-    lapack_dep = fc.find_library('lapack')
+    lapack_dep = cc.find_library(ilp64 ? 'lapack64' : 'lapack')
   endif
   lib_deps += lapack_dep
-  blas_dep = dependency('blas', required: false)
+  blas_dep = cc.find_library(ilp64 ? 'blas64' : 'blas', required: false)
   if not blas_dep.found()
-    blas_dep = fc.find_library('blas')
+    blas_dep = cc.find_library(ilp64 ? 'blas64' : 'blas')
   endif
   lib_deps += blas_dep
 endif
@@ -123,6 +151,7 @@ lib_deps += mctc_dep
 # Create the electrostatic library as subproject
 multicharge_dep = dependency(
   'multicharge',
+  version: '>=0.3.0',
   fallback: ['multicharge', 'multicharge_dep'],
   default_options: ['default_library=static'],
 )

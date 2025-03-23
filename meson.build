@@ -17,7 +17,7 @@
 project(
   'dftd4',
   'fortran',
-  version: '3.4.0',
+  version: '3.7.0',
   license: 'LGPL-3.0-or-later',
   meson_version: '>=0.55',
   default_options: [
@@ -92,7 +92,9 @@ if install
   pkg = import('pkgconfig')
   pkg.generate(
     dftd4_lib,
+    name: 'dftd4',
     description: 'Generally Applicable Atomic-Charge Dependent London Dispersion Correction',
+    version: meson.project_version(),
     subdirs: ['', module_id],
   )
 

@@ -43,3 +43,5 @@ __pycache__
 # Project-specific files
 .EDISP
 dftd4.txt
+C_n.json
+pairs.json

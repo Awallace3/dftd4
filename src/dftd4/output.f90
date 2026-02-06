@@ -152,6 +152,34 @@ subroutine print_values_wp(arr, name, last, unit)
 
 end subroutine print_values_wp
 
+subroutine print_values_1d_wp(arr, name, last, unit)
+   real(wp), intent(in) :: arr(:)
+   INTEGER :: unit
+   Character(*) :: name
+   integer :: i, last, length
+   Character(len=20) :: field
+
+
+   field = ' "'//name//'": '
+   length = SIZE(arr)
+
+   write(unit, *) field
+   write(unit, *) "["
+   do i = 1, length
+      if (i == length) then
+         write(unit, *) arr(i)
+      else
+         write(unit, *) arr(i), ","
+      end if
+   end do
+   if (last == 0) then
+      write(unit, *) "],"
+   else
+      write(unit, *) "]"
+   end if
+
+end subroutine print_values_1d_wp
+
 subroutine ascii_system_properties(unit, mol, disp, cn, q, c6, alpha)
    !DEC$ ATTRIBUTES DLLEXPORT :: ascii_system_properties
 
@@ -250,7 +278,8 @@ subroutine ascii_system_properties(unit, mol, disp, cn, q, c6, alpha)
    open (unit = 90, file = "C_n.json", status="new")
    write(90, *) "{"
    call print_values_wp(c6, 'c6', 0, 90)
-   call print_values_wp(c8, 'c8', 1, 90)
+   call print_values_wp(c8, 'c8', 0, 90)
+   call print_values_1d_wp(q, 'partial_charges', 1, 90)
    write(90, *) "}"
    close(90)
    ! modification

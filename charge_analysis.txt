@@ -1,0 +1,105 @@
+=================================================================================
+CHARGE EQUILIBRATION BUG ANALYSIS - DFTD4
+=================================================================================
+
+SUMMARY: Partial charges and C6 coefficients do NOT converge to monomer values
+when a distant fragment (He at 1000 Å) is present, indicating a bug in the
+charge equilibration routine.
+
+=================================================================================
+DATA FROM C_n*.json FILES:
+=================================================================================
+
+1. WATER MONOMER (water.xyz) - REFERENCE VALUES
+   ------------------------------------------------
+   Atom 1 (O):  q = -0.5848 au
+   Atom 2 (H):  q = +0.2924 au
+   Atom 3 (H):  q = +0.2924 au
+   
+   C6(O-H) = 4.2053 au
+   C6(H-H) = 0.7445 au
+
+2. WATER-HE DIMER at 2.29 Å (water_he.xyz)
+   ------------------------------------------------
+   Atom 1 (O):  q = -0.5875 au   (Δ = -0.0027 from monomer)
+   Atom 2 (H):  q = +0.2910 au   (Δ = -0.0014 from monomer)
+   Atom 3 (H):  q = +0.2902 au   (Δ = -0.0022 from monomer)
+   Atom 4 (He): q = +0.0063 au
+   
+   C6(O-H₁) = 4.2235 au   (Δ = +0.0182 from monomer)
+   C6(O-H₂) = 4.2302 au   (Δ = +0.0249 from monomer)
+   C6(H-H)  = 0.7490-0.7514 au (Δ = +0.0045 to +0.0069 from monomer)
+   
+   Note: Small perturbations expected at ~2 Å separation
+
+3. WATER-HE DIMER at 1000 Å (water_he_1000.xyz) - THE BUG
+   ------------------------------------------------
+   Atom 1 (O):  q = -0.5929 au   (Δ = -0.0081 from monomer) *** SHOULD BE ~0 ***
+   Atom 2 (H):  q = +0.2891 au   (Δ = -0.0033 from monomer) *** SHOULD BE ~0 ***
+   Atom 3 (H):  q = +0.2891 au   (Δ = -0.0033 from monomer) *** SHOULD BE ~0 ***
+   Atom 4 (He): q = +0.0147 au   *** He still accumulating charge! ***
+   
+   C6(O-H) = 4.2509 au   (Δ = +0.0456 from monomer) *** SHOULD BE ~0 ***
+   C6(H-H) = 0.7548 au   (Δ = +0.0103 from monomer) *** SHOULD BE ~0 ***
+
+=================================================================================
+CHARGE DIFFERENCES ANALYSIS:
+=================================================================================
+
+Charge Difference (1000 Å case - monomer):
+   O:  -0.0081 au  (1.4% change)
+   H:  -0.0033 au  (1.1% change per H atom)
+   He: +0.0147 au  (accumulated charge on distant atom!)
+
+C6 Coefficient Differences (1000 Å case - monomer):
+   C6(O-H): +0.0456 au  (+1.08% error)
+   C6(H-H): +0.0103 au  (+1.38% error)
+
+=================================================================================
+EXPECTED BEHAVIOR:
+=================================================================================
+
+At 1000 Å separation (>> van der Waals interaction range):
+   - Water charges should equal monomer charges (within numerical precision)
+   - He charge should be ~0 (no charge transfer possible at this distance)
+   - C6 coefficients should equal monomer values (within numerical precision)
+
+=================================================================================
+ROOT CAUSE:
+=================================================================================
+
+The charge equilibration routine (get_charges from multicharge module) performs
+electronegativity equilibration (EEQ) across the ENTIRE system without:
+
+1. Distance-based cutoffs for charge transfer
+2. Fragment detection to identify non-interacting subsystems
+3. Convergence to monomer limits at large separations
+
+The charges are computed globally, so even at 1000 Å:
+   - He "steals" 0.0147 electrons from the water molecule
+   - This changes water's charge distribution
+   - Changed charges affect C6 via the zeta weighting function
+   - C6 values propagate the error into dispersion energies
+
+=================================================================================
+PHYSICAL INTERPRETATION:
+=================================================================================
+
+The bug means that DFTD4 incorrectly predicts:
+   - Long-range charge transfer at non-physical distances
+   - Different dispersion properties for isolated molecules depending on what
+     other molecules exist in the system (even at 1000 Å away!)
+   - Non-converging behavior as fragments separate
+
+This violates size-consistency and fragment separability principles.
+
+=================================================================================
+IMPACT:
+=================================================================================
+
+1. Dispersion energies for weakly-bound complexes will be incorrect
+2. Potential energy surfaces won't have correct asymptotic behavior
+3. Properties of molecules in a system depend on distant non-interacting species
+4. Violates fundamental physical principles (size-extensivity)
+
+=================================================================================

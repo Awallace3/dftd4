@@ -18,14 +18,14 @@ After you completed the installation of ``dftd4``, make sure it is findable by `
 
 If your ``dftd4`` installation is not findable, you have to update your environment variables.
 One option is to provide a module file for your ``dftd4`` installation.
-The example module file below can be placed in your ``MODULEPATH`` to provide access to an installation in ``~/opt/dftd4/3.4.0``.
+The example module file below can be placed in your ``MODULEPATH`` to provide access to an installation in ``~/opt/dftd4/4.0.1``.
 Retry the above comment after loading the ``dftd4`` module and adjust the module file until ``pkg-config`` finds your installation.
 
 .. code-block:: lua
 
-   -- dftd4/3.4.0.lua
+   -- dftd4/4.0.1.lua
    local name = "dftd4"
-   local version = "3.4.0"
+   local version = "4.0.1"
    local prefix = pathJoin(os.getenv("HOME"), "opt", name, version)
    local libdir = "lib"  -- or lib64
 
@@ -49,3 +49,13 @@ To enable support for D4 in Vasp add the following lines to the Makefile:
    CPP_OPTIONS += -DDFTD4
    LLIBS       += $(shell pkg-config --libs dftd4)
    INCS        += $(shell pkg-config --cflags dftd4)
+
+Depending on how you built DFT-D4, DFT-D4's dependencies not might be properly recognized during the VASP build. Try to explicitly add them to the link line.
+
+.. code-block:: make
+
+   CPP_OPTIONS += -DDFTD4
+   LLIBS       += $(shell pkg-config --libs dftd4) -lmulticharge -lmctc-lib -lmstore
+   INCS        += $(shell pkg-config --cflags dftd4)
+
+If you still run into issues, check out `VASP-related issues <https://github.com/dftd4/dftd4/issues?q=label%3Avasp%20>`_ on the ``dftd4`` issue tracker.

@@ -28,7 +28,7 @@ Supported keywords are
 ======================== =========== ============================================
  Keyword                  Default     Description
 ======================== =========== ============================================
- level_hint               None        Dispersion correction level (allowed: "d4")
+ level_hint               None        Dispersion correction level ("d4" or "d4s")
  params_tweaks            None        Optional dict with the damping parameters
  pair_resolved            False       Enable pairwise resolved dispersion energy
  property                 False       Evaluate dispersion related properties
@@ -46,6 +46,9 @@ must be provided
  a1                       None        Scaling of the critical radii
  a2                       None        Offset of the critical radii
  alp                      16.0        Exponent of the zero damping (ATM only)
+ ga                       3.0         Charge scaling limiting value
+ gc                       2.0         Charge scaling steepness
+ wf                       6.0         Coordination number weighting
 ======================== =========== ============================================
 
 Either method or s8, a1 and a2 must be provided, s9 can be used to overwrite
@@ -87,11 +90,12 @@ Example
 """
 
 from typing import Union
-from .interface import DispersionModel, DampingParam
-from .library import get_api_version
+
 import numpy as np
 import qcelemental as qcel
 
+from .interface import DampingParam, DispersionModel
+from .library import get_api_version
 
 _supported_drivers = [
     "energy",
@@ -100,6 +104,7 @@ _supported_drivers = [
 
 _available_levels = [
     "d4",
+    "d4s",
 ]
 
 _clean_dashlevel = str.maketrans("", "", "()")
@@ -153,6 +158,23 @@ def run_qcschema(
 
     # Obtain the parameters for the damping function
     _input_param = atomic_input.keywords.get("params_tweaks", {"method": _method})
+    if(_level.lower() == "d4s"):
+        _model_param = {
+            key: _input_param.pop(key, default)
+            for key, default in (
+                ("ga", 3.0),
+                ("gc", 2.0),
+            )
+        }
+    else: 
+        _model_param = {
+            key: _input_param.pop(key, default)
+            for key, default in (
+                ("ga", 3.0),
+                ("gc", 2.0),
+                ("wf", 6.0),
+            )
+        }
 
     try:
         param = DampingParam(**_input_param)
@@ -161,6 +183,8 @@ def run_qcschema(
             atomic_input.molecule.atomic_numbers[atomic_input.molecule.real],
             atomic_input.molecule.geometry[atomic_input.molecule.real],
             atomic_input.molecule.molecular_charge,
+            model = _level,
+            **_model_param,
         )
 
         res = disp.get_dispersion(

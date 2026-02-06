@@ -19,9 +19,9 @@
 project(
   'dftd4',
   'c',
-  version: '3.4.0',
+  version: '4.0.1',
   license: 'LGPL-3.0-or-later',
-  meson_version: '>=0.55',
+  meson_version: '>=0.55,!=1.8.0',
   default_options: [
     'buildtype=debugoptimized',
   ],

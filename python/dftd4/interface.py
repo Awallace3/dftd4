@@ -23,8 +23,8 @@ library in actual workflows than the low-level access provided in the CFFI gener
 """
 
 from typing import Optional
-import numpy as np
 
+import numpy as np
 
 from . import library
 
@@ -255,7 +255,7 @@ class DispersionModel(Structure):
     ...     ]),
     ...     numbers = np.array([8, 1, 1]),
     ... )
-    >>> disp.get_properties()["polarizibilities"]
+    >>> disp.get_properties()["polarizabilities"]
     array([6.74893641, 1.33914933, 1.33914933])
 
     Raises
@@ -276,21 +276,35 @@ class DispersionModel(Structure):
         charge: Optional[float] = None,
         lattice: Optional[np.ndarray] = None,
         periodic: Optional[np.ndarray] = None,
+        model: str = "d4",
         **kwargs,
     ):
         """Create new dispersion model"""
 
         Structure.__init__(self, numbers, positions, charge, lattice, periodic)
+        
 
-        if "ga" in kwargs or "gc" in kwargs or "wf" in kwargs:
-            self._disp = library.custom_d4_model(
-                self._mol,
-                kwargs.get("ga", 3.0),
-                kwargs.get("gc", 2.0),
-                kwargs.get("wf", 6.0),
-            )
-        else:
-            self._disp = library.new_d4_model(self._mol)
+        if model.lower().replace(" ", "") == "d4": 
+            if "ga" in kwargs or "gc" in kwargs or "wf" in kwargs:
+                self._disp = library.custom_d4_model(
+                    self._mol,
+                    kwargs.get("ga", 3.0),
+                    kwargs.get("gc", 2.0),
+                    kwargs.get("wf", 6.0),
+                )
+            else:
+                self._disp = library.new_d4_model(self._mol)
+        elif model.lower().replace(" ", "") == "d4s": 
+            if "ga" in kwargs or "gc" in kwargs:
+                self._disp = library.custom_d4s_model(
+                    self._mol,
+                    kwargs.get("ga", 3.0),
+                    kwargs.get("gc", 2.0),
+                )
+            else: 
+                self._disp = library.new_d4s_model(self._mol)
+        else: 
+            raise ValueError(f"Unknown dispersion model '{model}'.")
 
     def get_dispersion(self, param: DampingParam, grad: bool) -> dict:
         """
@@ -356,9 +370,9 @@ class DispersionModel(Structure):
 
     def get_properties(self) -> dict:
         """
-        Evaluate dispersion related properties, like polarizibilities and C6 coefficients.
+        Evaluate dispersion related properties, like polarizabilities and C6 coefficients.
         Will also return the coordination numbers and partial charges used to derive
-        the polarizibilities. Only the static polarizibility is return at the moment.
+        the polarizabilities. Only the static polarizibility is return at the moment.
 
         Example
         -------
@@ -381,7 +395,7 @@ class DispersionModel(Structure):
         >>> res.get("coordination numbers")
         array([1.96273847, 1.96273847, 1.96273847, 1.96273847, 1.96273847,
                1.96273847, 1.96273847, 1.96273847])
-        >>> res.get("polarizibilities").sum()
+        >>> res.get("polarizabilities").sum()
         158.748605606818
         """
 
@@ -403,7 +417,7 @@ class DispersionModel(Structure):
             "coordination numbers": _cn,
             "partial charges": _charges,
             "c6 coefficients": _c6,
-            "polarizibilities": _alpha,
+            "polarizabilities": _alpha,
         }
 
     def get_pairwise_dispersion(self, param: DampingParam) -> dict:

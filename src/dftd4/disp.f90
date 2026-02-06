@@ -16,16 +16,17 @@
 
 !> High-level wrapper to obtain the dispersion energy for a DFT-D4 calculation
 module dftd4_disp
+   use, intrinsic :: iso_fortran_env, only : error_unit
    use dftd4_blas, only : d4_gemv
-   use dftd4_charge, only : get_charges
    use dftd4_cutoff, only : realspace_cutoff, get_lattice_points
    use dftd4_damping, only : damping_param
    use dftd4_data, only : get_covalent_rad
-   use dftd4_model, only : d4_model
-   use dftd4_ncoord, only : get_coordination_number
-   use mctc_env, only : wp
+   use dftd4_model, only : dispersion_model
+   use dftd4_ncoord, only : get_coordination_number, add_coordination_number_derivs
+   use mctc_env, only : wp, error_type
    use mctc_io, only : structure_type
    use mctc_io_convert, only : autoaa
+   use multicharge, only : get_charges
    implicit none
    private
 
@@ -72,12 +73,13 @@ end subroutine print_values_wp
 
 !> Wrapper to handle the evaluation of dispersion energy and derivatives
 subroutine get_dispersion(mol, disp, param, cutoff, energy, gradient, sigma)
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_dispersion
 
    !> Molecular structure data
    class(structure_type), intent(in) :: mol
 
    !> Dispersion model
-   class(d4_model), intent(in) :: disp
+   class(dispersion_model), intent(in) :: disp
 
    !> Damping parameters
    class(damping_param), intent(in) :: param
@@ -97,28 +99,36 @@ subroutine get_dispersion(mol, disp, param, cutoff, energy, gradient, sigma)
 
    logical :: grad
    integer :: mref
-   real(wp), allocatable :: cn(:), dcndr(:, :, :), dcndL(:, :, :)
+   real(wp), allocatable :: cn(:)
    real(wp), allocatable :: q(:), dqdr(:, :, :), dqdL(:, :, :)
-   real(wp), allocatable :: gwvec(:, :), gwdcn(:, :), gwdq(:, :)
+   real(wp), allocatable :: gwvec(:, :, :), gwdcn(:, :, :), gwdq(:, :, :)
    real(wp), allocatable :: c6(:, :), dc6dcn(:, :), dc6dq(:, :)
    real(wp), allocatable :: dEdcn(:), dEdq(:), energies(:)
    real(wp), allocatable :: lattr(:, :)
+   type(error_type), allocatable :: error
 
    mref = maxval(disp%ref)
-   grad = present(gradient).and.present(sigma)
+   grad = present(gradient).or.present(sigma)
+
+   if (.not. allocated(disp%mchrg)) then
+      write(error_unit, '("[Error]:", 1x, a)') "Not supported for non-self-consistent D4 version"
+      error stop
+   end if
 
    allocate(cn(mol%nat))
-   if (grad) allocate(dcndr(3, mol%nat, mol%nat), dcndL(3, 3, mol%nat))
    call get_lattice_points(mol%periodic, mol%lattice, cutoff%cn, lattr)
-   call get_coordination_number(mol, lattr, cutoff%cn, disp%rcov, disp%en, &
-      & cn, dcndr, dcndL)
+   call get_coordination_number(mol, lattr, cutoff%cn, disp%rcov, disp%en, cn)
 
    allocate(q(mol%nat))
    if (grad) allocate(dqdr(3, mol%nat, mol%nat), dqdL(3, 3, mol%nat))
-   call get_charges(mol, q, dqdr, dqdL)
+   call get_charges(disp%mchrg, mol, error, q, dqdr, dqdL)
+   if(allocated(error)) then
+      write(error_unit, '("[Error]:", 1x, a)') error%message
+      error stop
+   end if
 
-   allocate(gwvec(mref, mol%nat))
-   if (grad) allocate(gwdcn(mref, mol%nat), gwdq(mref, mol%nat))
+   allocate(gwvec(mref, mol%nat, disp%ncoup))
+   if (grad) allocate(gwdcn(mref, mol%nat, disp%ncoup), gwdq(mref, mol%nat, disp%ncoup))
    call disp%weight_references(mol, cn, q, gwvec, gwdcn, gwdq)
 
    allocate(c6(mol%nat, mol%nat))
@@ -134,6 +144,7 @@ subroutine get_dispersion(mol, disp, param, cutoff, energy, gradient, sigma)
       gradient(:, :) = 0.0_wp
       sigma(:, :) = 0.0_wp
    end if
+
    call get_lattice_points(mol%periodic, mol%lattice, cutoff%disp2, lattr)
    call param%get_dispersion2(mol, lattr, cutoff%disp2, disp%r4r2, &
       & c6, dc6dcn, dc6dq, energies, dEdcn, dEdq, gradient, sigma)
@@ -162,8 +173,8 @@ subroutine get_dispersion(mol, disp, param, cutoff, energy, gradient, sigma)
    close(92)
 
    if (grad) then
-      call d4_gemv(dcndr, dEdcn, gradient, beta=1.0_wp)
-      call d4_gemv(dcndL, dEdcn, sigma, beta=1.0_wp)
+      call add_coordination_number_derivs(mol, lattr, cutoff%cn, &
+         & disp%rcov, disp%en, dEdcn, gradient, sigma)
    end if
 
    energy = sum(energies)
@@ -173,12 +184,13 @@ end subroutine get_dispersion
 
 !> Wrapper to handle the evaluation of properties related to this dispersion model
 subroutine get_properties(mol, disp, cutoff, cn, q, c6, alpha)
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_properties
 
    !> Molecular structure data
    class(structure_type), intent(in) :: mol
 
    !> Dispersion model
-   class(d4_model), intent(in) :: disp
+   class(dispersion_model), intent(in) :: disp
 
    !> Realspace cutoffs
    type(realspace_cutoff), intent(in) :: cutoff
@@ -187,41 +199,52 @@ subroutine get_properties(mol, disp, cutoff, cn, q, c6, alpha)
    real(wp), intent(out) :: cn(:)
 
    !> Atomic partial charges
-   real(wp), intent(out) :: q(:)
+   real(wp), intent(out), contiguous :: q(:)
 
    !> C6 coefficients
    real(wp), intent(out) :: c6(:, :)
 
-   !> Static polarizibilities
+   !> Static polarizabilities
    real(wp), intent(out) :: alpha(:)
 
    integer :: mref
-   real(wp), allocatable :: gwvec(:, :), lattr(:, :)
+   real(wp), allocatable :: gwvec(:, :, :), lattr(:, :)
+   type(error_type), allocatable :: error
+
+   if (.not. allocated(disp%mchrg)) then
+      write(error_unit, '("[Error]:", 1x, a)') "Not supported for non-self-consistent D4 version"
+      error stop
+   end if
 
    mref = maxval(disp%ref)
 
    call get_lattice_points(mol%periodic, mol%lattice, cutoff%cn, lattr)
    call get_coordination_number(mol, lattr, cutoff%cn, disp%rcov, disp%en, cn)
 
-   call get_charges(mol, q)
+   call get_charges(disp%mchrg, mol, error, q)
+   if(allocated(error)) then
+      write(error_unit, '("[Error]:", 1x, a)') error%message
+      error stop
+   end if
 
-   allocate(gwvec(mref, mol%nat))
+   allocate(gwvec(mref, mol%nat, disp%ncoup))
    call disp%weight_references(mol, cn, q, gwvec)
 
    call disp%get_atomic_c6(mol, gwvec, c6=c6)
-   call disp%get_polarizibilities(mol, gwvec, alpha=alpha)
+   call disp%get_polarizabilities(mol, gwvec, alpha=alpha)
 
 end subroutine get_properties
 
 
 !> Wrapper to handle the evaluation of pairwise representation of the dispersion energy
 subroutine get_pairwise_dispersion(mol, disp, param, cutoff, energy2, energy3)
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_pairwise_dispersion
 
    !> Molecular structure data
    class(structure_type), intent(in) :: mol
 
    !> Dispersion model
-   class(d4_model), intent(in) :: disp
+   class(dispersion_model), intent(in) :: disp
 
    !> Damping parameters
    class(damping_param), intent(in) :: param
@@ -236,7 +259,13 @@ subroutine get_pairwise_dispersion(mol, disp, param, cutoff, energy2, energy3)
    real(wp), intent(out) :: energy3(:, :)
 
    integer :: mref
-   real(wp), allocatable :: cn(:), q(:), gwvec(:, :), c6(:, :), lattr(:, :)
+   real(wp), allocatable :: cn(:), q(:), gwvec(:, :, :), c6(:, :), lattr(:, :)
+   type(error_type), allocatable :: error
+
+   if (.not. allocated(disp%mchrg)) then
+      write(error_unit, '("[Error]:", 1x, a)') "Not supported for non-self-consistent D4 version"
+      error stop
+   end if
 
    mref = maxval(disp%ref)
 
@@ -245,9 +274,13 @@ subroutine get_pairwise_dispersion(mol, disp, param, cutoff, energy2, energy3)
    call get_coordination_number(mol, lattr, cutoff%cn, disp%rcov, disp%en, cn)
 
    allocate(q(mol%nat))
-   call get_charges(mol, q)
+   call get_charges(disp%mchrg, mol, error, q)
+   if(allocated(error)) then
+      write(error_unit, '("[Error]:", 1x, a)') error%message
+      error stop
+   end if
 
-   allocate(gwvec(mref, mol%nat))
+   allocate(gwvec(mref, mol%nat, disp%ncoup))
    call disp%weight_references(mol, cn, q, gwvec)
 
    allocate(c6(mol%nat, mol%nat))

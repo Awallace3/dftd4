@@ -27,7 +27,10 @@ module dftd4_api
    use dftd4_damping, only : damping_param
    use dftd4_damping_rational, only : rational_damping_param
    use dftd4_disp, only : get_dispersion, get_pairwise_dispersion, get_properties
-   use dftd4_model, only : d4_model, new_d4_model
+   use dftd4_model, only : dispersion_model
+   use dftd4_model_d4, only : d4_model, new_d4_model
+   use dftd4_model_d4s, only : d4s_model, new_d4s_model
+   use dftd4_numdiff, only: get_dispersion_hessian
    use dftd4_param, only : get_rational_damping
    use dftd4_utils, only : wrap_to_central_cell
    use dftd4_version, only : get_dftd4_version
@@ -44,6 +47,7 @@ module dftd4_api
 
    public :: vp_model
    public :: new_d4_model_api, custom_d4_model_api, delete_model_api
+   public :: new_d4s_model_api, custom_d4s_model_api
 
    public :: vp_param
    public :: new_rational_damping_api , load_rational_damping_api
@@ -69,7 +73,7 @@ module dftd4_api
    !> Void pointer to dispersion model
    type :: vp_model
       !> Actual payload
-      type(d4_model) :: ptr
+      class(dispersion_model), allocatable :: ptr
    end type vp_model
 
    !> Void pointer to damping parameters
@@ -88,6 +92,7 @@ contains
 !> Obtain library version as major * 10000 + minor + 100 + patch
 function get_version_api() result(version) &
       & bind(C, name=namespace//"get_version")
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_version_api
    integer(c_int) :: version
    integer :: major, minor, patch
 
@@ -101,6 +106,7 @@ end function get_version_api
 function new_error_api() &
       & result(verror) &
       & bind(C, name=namespace//"new_error")
+   !DEC$ ATTRIBUTES DLLEXPORT :: new_error_api
    type(vp_error), pointer :: error
    type(c_ptr) :: verror
 
@@ -115,6 +121,7 @@ end function new_error_api
 !> Delete error handle object
 subroutine delete_error_api(verror) &
       & bind(C, name=namespace//"delete_error")
+   !DEC$ ATTRIBUTES DLLEXPORT :: delete_error_api
    type(c_ptr), intent(inout) :: verror
    type(vp_error), pointer :: error
 
@@ -133,6 +140,7 @@ end subroutine delete_error_api
 !> Check error handle status
 function check_error_api(verror) result(status) &
       & bind(C, name=namespace//"check_error")
+   !DEC$ ATTRIBUTES DLLEXPORT :: check_error_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    integer(c_int) :: status
@@ -157,6 +165,7 @@ end function check_error_api
 !> Get error message from error handle
 subroutine get_error_api(verror, charptr, buffersize) &
       & bind(C, name=namespace//"get_error")
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_error_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    character(kind=c_char), intent(inout) :: charptr(*)
@@ -186,6 +195,7 @@ end subroutine get_error_api
 function new_structure_api(verror, natoms, numbers, positions, c_charge, &
       & c_lattice, c_periodic) result(vmol) &
       & bind(C, name=namespace//"new_structure")
+   !DEC$ ATTRIBUTES DLLEXPORT :: new_structure_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    integer(c_int), value, intent(in) :: natoms
@@ -234,6 +244,7 @@ end function new_structure_api
 !> Delete molecular structure data
 subroutine delete_structure_api(vmol) &
       & bind(C, name=namespace//"delete_structure")
+   !DEC$ ATTRIBUTES DLLEXPORT :: delete_structure_api
    type(c_ptr), intent(inout) :: vmol
    type(vp_structure), pointer :: mol
 
@@ -252,6 +263,7 @@ end subroutine delete_structure_api
 !> Update coordinates and lattice parameters (quantities in Bohr)
 subroutine update_structure_api(verror, vmol, positions, lattice) &
       & bind(C, name=namespace//"update_structure")
+   !DEC$ ATTRIBUTES DLLEXPORT :: update_structure_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    type(c_ptr), value :: vmol
@@ -294,12 +306,14 @@ end subroutine update_structure_api
 function new_d4_model_api(verror, vmol) &
       & result(vdisp) &
       & bind(C, name=namespace//"new_d4_model")
+   !DEC$ ATTRIBUTES DLLEXPORT :: new_d4_model_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    type(c_ptr), value :: vmol
    type(vp_structure), pointer :: mol
    type(c_ptr) :: vdisp
    type(vp_model), pointer :: disp
+   type(d4_model), allocatable :: tmp
 
    if (debug) print'("[Info]",1x, a)', "new_d4_model"
 
@@ -314,17 +328,65 @@ function new_d4_model_api(verror, vmol) &
    end if
    call c_f_pointer(vmol, mol)
 
-   allocate(disp)
-   call new_d4_model(disp%ptr, mol%ptr)
-   vdisp = c_loc(disp)
+   allocate(tmp)
+   call new_d4_model(error%ptr, tmp, mol%ptr)
+
+   if (allocated(error%ptr)) then
+      deallocate(tmp)
+   else
+      allocate(disp)
+      call move_alloc(tmp, disp%ptr)   
+      vdisp = c_loc(disp)
+   end if
 
 end function new_d4_model_api
 
 
-!> Create new D4 dispersion model
+!> Create new D4S dispersion model
+function new_d4s_model_api(verror, vmol) &
+      & result(vdisp) &
+      & bind(C, name=namespace//"new_d4s_model")
+   !DEC$ ATTRIBUTES DLLEXPORT :: new_d4s_model_api
+   type(c_ptr), value :: verror
+   type(vp_error), pointer :: error
+   type(c_ptr), value :: vmol
+   type(vp_structure), pointer :: mol
+   type(c_ptr) :: vdisp
+   type(vp_model), pointer :: disp
+   type(d4s_model), allocatable :: tmp
+
+   if (debug) print'("[Info]",1x, a)', "new_d4s_model"
+
+   vdisp = c_null_ptr
+
+   if (.not.c_associated(verror)) return
+   call c_f_pointer(verror, error)
+
+   if (.not.c_associated(vmol)) then
+      call fatal_error(error%ptr, "Molecular structure data is missing")
+      return
+   end if
+   call c_f_pointer(vmol, mol)
+
+   allocate(tmp)
+   call new_d4s_model(error%ptr, tmp, mol%ptr)
+
+   if (allocated(error%ptr)) then
+      deallocate(tmp)
+   else
+      allocate(disp)
+      call move_alloc(tmp, disp%ptr)   
+      vdisp = c_loc(disp)
+   end if
+
+end function new_d4s_model_api
+
+
+!> Create new custom D4 dispersion model
 function custom_d4_model_api(verror, vmol, ga, gc, wf) &
       & result(vdisp) &
       & bind(C, name=namespace//"custom_d4_model")
+   !DEC$ ATTRIBUTES DLLEXPORT :: custom_d4_model_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    type(c_ptr), value :: vmol
@@ -334,6 +396,7 @@ function custom_d4_model_api(verror, vmol, ga, gc, wf) &
    real(c_double), value, intent(in) :: ga
    real(c_double), value, intent(in) :: gc
    real(c_double), value, intent(in) :: wf
+   type(d4_model), allocatable :: tmp
 
    if (debug) print'("[Info]",1x, a)', "custom_d4_model"
 
@@ -348,16 +411,66 @@ function custom_d4_model_api(verror, vmol, ga, gc, wf) &
    end if
    call c_f_pointer(vmol, mol)
 
-   allocate(disp)
-   call new_d4_model(disp%ptr, mol%ptr, ga=ga, gc=gc, wf=wf)
-   vdisp = c_loc(disp)
+   allocate(tmp)
+   call new_d4_model(error%ptr, tmp, mol%ptr, ga=ga, gc=gc, wf=wf)
+
+   if (allocated(error%ptr)) then
+      deallocate(tmp)
+   else
+      allocate(disp)
+      call move_alloc(tmp, disp%ptr)   
+      vdisp = c_loc(disp)
+   end if
 
 end function custom_d4_model_api
+
+
+!> Create new custom D4S dispersion model
+function custom_d4s_model_api(verror, vmol, ga, gc) &
+      & result(vdisp) &
+      & bind(C, name=namespace//"custom_d4s_model")
+   !DEC$ ATTRIBUTES DLLEXPORT :: custom_d4s_model_api
+   type(c_ptr), value :: verror
+   type(vp_error), pointer :: error
+   type(c_ptr), value :: vmol
+   type(vp_structure), pointer :: mol
+   type(c_ptr) :: vdisp
+   type(vp_model), pointer :: disp
+   real(c_double), value, intent(in) :: ga
+   real(c_double), value, intent(in) :: gc
+   type(d4s_model), allocatable :: tmp
+
+   if (debug) print'("[Info]",1x, a)', "custom_d4s_model"
+
+   vdisp = c_null_ptr
+
+   if (.not.c_associated(verror)) return
+   call c_f_pointer(verror, error)
+
+   if (.not.c_associated(vmol)) then
+      call fatal_error(error%ptr, "Molecular structure data is missing")
+      return
+   end if
+   call c_f_pointer(vmol, mol)
+
+   allocate(tmp)
+   call new_d4s_model(error%ptr, tmp, mol%ptr, ga=ga, gc=gc)
+
+   if (allocated(error%ptr)) then
+      deallocate(tmp)
+   else
+      allocate(disp)
+      call move_alloc(tmp, disp%ptr)   
+      vdisp = c_loc(disp)
+   end if
+
+end function custom_d4s_model_api
 
 
 !> Delete dispersion model
 subroutine delete_model_api(vdisp) &
       & bind(C, name=namespace//"delete_model")
+   !DEC$ ATTRIBUTES DLLEXPORT :: delete_model_api
    type(c_ptr), intent(inout) :: vdisp
    type(vp_model), pointer :: disp
 
@@ -377,6 +490,7 @@ end subroutine delete_model_api
 function new_rational_damping_api(verror, s6, s8, s9, a1, a2, alp) &
       & result(vparam) &
       & bind(C, name=namespace//"new_rational_damping")
+   !DEC$ ATTRIBUTES DLLEXPORT :: new_rational_damping_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    real(c_double), value, intent(in) :: s6
@@ -410,6 +524,7 @@ end function new_rational_damping_api
 function load_rational_damping_api(verror, charptr, atm) &
       & result(vparam) &
       & bind(C, name=namespace//"load_rational_damping")
+   !DEC$ ATTRIBUTES DLLEXPORT :: load_rational_damping_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    character(kind=c_char), intent(in) :: charptr(*)
@@ -418,6 +533,7 @@ function load_rational_damping_api(verror, charptr, atm) &
    type(c_ptr) :: vparam
    type(vp_param), pointer :: param
    real(wp), allocatable :: s9
+   class(damping_param), allocatable :: tmp
 
    if (debug) print'("[Info]",1x, a)', "load_rational_damping"
 
@@ -429,13 +545,14 @@ function load_rational_damping_api(verror, charptr, atm) &
    call c_f_character(charptr, method)
 
    if (atm) s9 = 1.0_wp
-   allocate(param)
-   call get_rational_damping(method, param%ptr, s9)
-   if (.not.allocated(param%ptr)) then
+   call get_rational_damping(method, tmp, s9)
+   if (.not.allocated(tmp)) then
       call fatal_error(error%ptr, "Functional '"//method//"' not known")
       return
    end if
 
+   allocate(param)
+   call move_alloc(tmp, param%ptr)
    vparam = c_loc(param)
 
 end function load_rational_damping_api
@@ -444,6 +561,7 @@ end function load_rational_damping_api
 !> Delete damping parameters
 subroutine delete_param_api(vparam) &
       & bind(C, name=namespace//"delete_param")
+   !DEC$ ATTRIBUTES DLLEXPORT :: delete_param_api
    type(c_ptr), intent(inout) :: vparam
    type(vp_param), pointer :: param
 
@@ -463,6 +581,7 @@ end subroutine delete_param_api
 subroutine get_dispersion_api(verror, vmol, vdisp, vparam, &
       & energy, c_gradient, c_sigma) &
       & bind(C, name=namespace//"get_dispersion")
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_dispersion_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    type(c_ptr), value :: vmol
@@ -476,6 +595,8 @@ subroutine get_dispersion_api(verror, vmol, vdisp, vparam, &
    real(wp), allocatable :: gradient(:, :)
    real(c_double), intent(out), optional :: c_sigma(3, 3)
    real(wp), allocatable :: sigma(:, :)
+   logical :: has_grad, has_sigma
+
 
    if (debug) print'("[Info]",1x, a)', "get_dispersion"
 
@@ -505,32 +626,98 @@ subroutine get_dispersion_api(verror, vmol, vdisp, vparam, &
       return
    end if
 
-   if (present(c_gradient)) then
+   has_grad = present(c_gradient) 
+   if (has_grad) then
       gradient = c_gradient(:3, :mol%ptr%nat)
    endif
 
-   if (present(c_gradient)) then
+   has_sigma = present(c_sigma) 
+   if (has_sigma) then
       sigma = c_sigma(:3, :3)
+   ! Still needs to be passed into dispersion subroutines,
+   ! just won't be returned through the API. 
+   ! Would need to refactor disperision
+   ! subroutines to make sigma truly optional. 
+   else if (has_grad) then
+      allocate(sigma(3,3)) 
    endif
 
+   ! Evaluate energy, gradient (optional), and 
+   ! sigma (optional) analytically
    call get_dispersion(mol%ptr, disp%ptr, param%ptr, realspace_cutoff(), &
       & energy, gradient, sigma)
 
-   if (present(c_gradient)) then
+   if (has_grad) then
       c_gradient(:3, :mol%ptr%nat) = gradient
    endif
 
-   if (present(c_gradient)) then
+   if (has_sigma) then
       c_sigma(:3, :3) = sigma
    endif
 
 end subroutine get_dispersion_api
 
+!> Calculate hessian numerically
+subroutine get_numerical_hessian_api(verror, vmol, vdisp, & 
+                                   & vparam, c_hessian) &
+      & bind(C, name=namespace//"get_numerical_hessian")
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_numerical_hessian_api
+   type(c_ptr), value :: verror
+   type(vp_error), pointer :: error
+   type(c_ptr), value :: vmol
+   type(vp_structure), pointer :: mol
+   type(c_ptr), value :: vdisp
+   type(vp_model), pointer :: disp
+   type(c_ptr), value :: vparam
+   type(vp_param), pointer :: param
+   real(c_double), intent(out) :: c_hessian(*)
+   real(wp), allocatable :: hessian(:, :, :, :)
+   integer :: nat_sq
+
+
+   if (debug) print'("[Info]",1x, a)', "get_numerical_hessian"
+
+   if (.not.c_associated(verror)) return
+   call c_f_pointer(verror, error)
+
+   if (.not.c_associated(vmol)) then
+      call fatal_error(error%ptr, "Molecular structure data is missing")
+      return
+   end if
+   call c_f_pointer(vmol, mol)
+   nat_sq = mol%ptr%nat*mol%ptr%nat
+
+   if (.not.c_associated(vdisp)) then
+      call fatal_error(error%ptr, "Dispersion model is missing")
+      return
+   end if
+   call c_f_pointer(vdisp, disp)
+
+   if (.not.c_associated(vparam)) then
+      call fatal_error(error%ptr, "Damping parameters are missing")
+      return
+   end if
+   call c_f_pointer(vparam, param)
+
+   if (.not.allocated(param%ptr)) then
+      call fatal_error(error%ptr, "Damping parameters are not initialized")
+      return
+   end if
+
+   ! Evaluate hessian numerically 
+   hessian = reshape(c_hessian(:9*nat_sq), &
+                    &(/3, mol%ptr%nat, 3, mol%ptr%nat/))
+   call get_dispersion_hessian(mol%ptr, disp%ptr, param%ptr, &
+    & realspace_cutoff(), hessian)
+   c_hessian(:9*nat_sq) = reshape(hessian, (/9*nat_sq/))
+
+end subroutine get_numerical_hessian_api
 
 !> Calculate pairwise representation of dispersion energy
 subroutine get_pairwise_dispersion_api(verror, vmol, vdisp, vparam, &
       & c_pair_energy2, c_pair_energy3) &
       & bind(C, name=namespace//"get_pairwise_dispersion")
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_pairwise_dispersion_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    type(c_ptr), value :: vmol
@@ -585,6 +772,7 @@ end subroutine get_pairwise_dispersion_api
 subroutine get_properties_api(verror, vmol, vdisp, &
       & c_cn, c_charges, c_c6, c_alpha) &
       & bind(C, name=namespace//"get_properties")
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_properties_api
    type(c_ptr), value :: verror
    type(vp_error), pointer :: error
    type(c_ptr), value :: vmol

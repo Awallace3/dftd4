@@ -14,12 +14,13 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with dftd4.  If not, see <https://www.gnu.org/licenses/>.
 
-from dftd4.interface import Structure, DampingParam, DispersionModel
-from pytest import approx, raises
 import numpy as np
+from dftd4.interface import DampingParam, DispersionModel, Structure
+import pytest
+from pytest import approx, raises
 
 
-def test_rational_damping_noargs():
+def test_rational_damping_noargs() -> None:
     """Check constructor of damping parameters for insufficient arguments"""
 
     with raises(TypeError):
@@ -38,7 +39,7 @@ def test_rational_damping_noargs():
         DampingParam(s8=1.0, a1=0.4, a2=5.0, method="abc")
 
 
-def test_structure():
+def test_structure() -> None:
     """check if the molecular structure data is working as expected."""
 
     numbers = np.array(
@@ -101,7 +102,7 @@ def test_structure():
         mol.update(np.zeros((24, 3)))
 
 
-def test_blypd4():
+def test_blypd4() -> None:
     """Use BLYP-D4 for a mindless molecule"""
     thr = 1.0e-7
 
@@ -157,7 +158,63 @@ def test_blypd4():
     assert approx(res.get("energy"), abs=thr) == -0.06991716314879085
 
 
-def test_pbed4():
+def test_tpssd4s() -> None:
+    """Use TPSS-D4S for a mindless molecule"""
+    thr = 1.0e-7
+
+    numbers = np.array(
+        [
+            1,
+            1,
+            6,
+            5,
+            1,
+            15,
+            8,
+            17,
+            13,
+            15,
+            5,
+            1,
+            9,
+            15,
+            1,
+            15,
+        ]
+    )
+    positions = np.array(
+        [
+            [+2.79274810283778, +3.82998228828316, -2.79287054959216],
+            [-1.43447454186833, +0.43418729987882, +5.53854345129809],
+            [-3.26268343665218, -2.50644032426151, -1.56631149351046],
+            [+2.14548759959147, -0.88798018953965, -2.24592534506187],
+            [-4.30233097423181, -3.93631518670031, -0.48930754109119],
+            [+0.06107643564880, -3.82467931731366, -2.22333344469482],
+            [+0.41168550401858, +0.58105573172764, +5.56854609916143],
+            [+4.41363836635653, +3.92515871809283, +2.57961724984000],
+            [+1.33707758998700, +1.40194471661647, +1.97530004949523],
+            [+3.08342709834868, +1.72520024666801, -4.42666116106828],
+            [-3.02346932078505, +0.04438199934191, -0.27636197425010],
+            [+1.11508390868455, -0.97617412809198, +6.25462847718180],
+            [+0.61938955433011, +2.17903547389232, -6.21279842416963],
+            [-2.67491681346835, +3.00175899761859, +1.05038813614845],
+            [-4.13181080289514, -2.34226739863660, -3.44356159392859],
+            [+2.85007173009739, -2.64884892757600, +0.71010806424206],
+        ]
+    )
+
+    model = DispersionModel(numbers, positions, model = "d4s")
+
+    res = model.get_dispersion(DampingParam(method="tpss"), grad=False)
+
+    assert approx(res.get("energy"), abs=thr) == -0.046233140236052253
+
+    res = model.get_dispersion(DampingParam(method="tpss"), grad=True)
+
+    assert approx(res.get("energy"), abs=thr) == -0.046233140236052253
+
+
+def test_pbed4() -> None:
     """Use PBE-D4 for a mindless molecule"""
     thr = 1.0e-7
 
@@ -213,7 +270,7 @@ def test_pbed4():
     assert approx(res.get("energy"), abs=thr) == -0.028415184156428127
 
 
-def test_r2scan3c():
+def test_r2scan3c() -> None:
     """Use r2SCAN-3c for a mindless molecule"""
     thr = 1.0e-8
 
@@ -273,7 +330,7 @@ def test_r2scan3c():
     assert approx(res.get("energy"), abs=thr) == -0.008016697276824889
 
 
-def test_pair_resolved():
+def test_pair_resolved() -> None:
     """Calculate pairwise resolved dispersion energy for a molecule"""
     thr = 1.0e-8
 
@@ -469,7 +526,7 @@ def test_pair_resolved():
     assert approx(res.get("non-additive pairwise energy"), abs=thr) == pair_disp3
 
 
-def test_properties():
+def test_properties() -> None:
     """Calculate dispersion related properties for a molecule"""
     thr = 1.0e-7
 
@@ -568,4 +625,27 @@ def test_properties():
 
     assert approx(res.get("coordination numbers"), abs=thr) == cn
     assert approx(res.get("partial charges"), abs=thr) == charges
-    assert approx(res.get("polarizibilities"), abs=thr) == alpha
+    assert approx(res.get("polarizabilities"), abs=thr) == alpha
+
+
+def test_error_model() -> None:
+    """Test the error for unknown dispersion model"""
+    numbers = np.array(
+        [
+            1, 
+            1, 
+            8, 
+        ]
+    )
+    positions = np.array(
+        [
+            [-0.02298820517725,  0.00000000000000, -1.76188954246096], 
+            [ 1.65369502723146,  0.00000000000000,  0.60848805100320], 
+            [-0.10273226709885,  0.00000000000000,  0.07266269355725], 
+        ]
+    )
+
+    with pytest.raises(ValueError) as exc:
+        DispersionModel(numbers, positions, model="D42")
+    
+    assert "Unknown dispersion model" in str(exc)

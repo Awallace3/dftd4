@@ -14,7 +14,7 @@
 # You should have received a copy of the Lesser GNU General Public License
 # along with dftd4.  If not, see <https://www.gnu.org/licenses/>.
 
-from os.path import join, dirname, exists
+from os.path import dirname, exists, join
 from typing import Optional
 
 # We prefer tomli and tomlkit here, because they are 1.0.0 compliant, while toml is not yet
@@ -53,7 +53,12 @@ def get_data_file_name(base_name: str = "parameters.toml") -> str:
         dirname(__file__), "..", "..", "..", "..", "share", "dftd4", base_name
     )
     if not exists(data_file):
-        data_file = join(dirname(__file__), base_name)
+        # for Windows install layout
+        data_file = join(
+            dirname(__file__), "..", "..", "..", "Library", "share", "dftd4", base_name
+        )
+        if not exists(data_file):
+            data_file = join(dirname(__file__), base_name)
 
     return data_file
 

@@ -22,13 +22,17 @@ Compatibility layer for supporting DFT-D4 in `pyscf <https://pyscf.org/>`_.
 
 try:
     from pyscf import lib, gto
+    from pyscf.grad import rhf as rhf_grad
 except ModuleNotFoundError:
     raise ModuleNotFoundError("This submodule requires pyscf installed")
 
-import numpy as np
 from typing import Tuple
 
-from .interface import DispersionModel, DampingParam
+import numpy as np
+
+from .interface import DampingParam, DispersionModel
+
+GradientsBase = getattr(rhf_grad, "GradientsBase", rhf_grad.Gradients)
 
 
 class DFTD4Dispersion(lib.StreamObject):
@@ -66,11 +70,12 @@ class DFTD4Dispersion(lib.StreamObject):
     array(-0.0050011)
     """
 
-    def __init__(self, mol, xc: str = "hf", atm: bool = True):
+    def __init__(self, mol, xc: str = "hf", atm: bool = True, model: str = "d4"):
         self.mol = mol
         self.verbose = mol.verbose
         self.xc = xc
         self.atm = atm
+        self.model = model
         self.edisp = None
         self.grads = None
 
@@ -96,10 +101,19 @@ class DFTD4Dispersion(lib.StreamObject):
         """
         mol = self.mol
 
+        lattice = None
+        periodic = None
+        if hasattr(mol, 'lattice_vectors'):
+            lattice = mol.lattice_vectors()
+            periodic = np.array([True, True, True], dtype=bool)
+
         disp = DispersionModel(
-            mol.atom_charges(),
+            np.asarray([gto.charge(sym) for sym in mol.elements]),
             mol.atom_coords(),
             mol.charge,
+            lattice=lattice,
+            periodic=periodic,
+            model=self.model,
         )
 
         param = DampingParam(
@@ -137,7 +151,7 @@ class _DFTD4Grad:
     pass
 
 
-def energy(mf):
+def energy(mf, model: str = "d4"):
     """
     Apply DFT-D4 corrections to SCF or MCSCF methods by returning an
     instance of a new class built from the original instances class.
@@ -146,6 +160,8 @@ def energy(mf):
     ----------
     mf
         The method to which DFT-D4 corrections will be applied.
+    model 
+        The DFT-D4 model to use (D4S or D4 (default)).
 
     Returns
     -------
@@ -173,8 +189,8 @@ def energy(mf):
     -110.917424528592
     """
 
-    from pyscf.scf import hf
     from pyscf.mcscf import casci
+    from pyscf.scf import hf
 
     if not isinstance(mf, (hf.SCF, casci.CASCI)):
         raise TypeError("mf must be an instance of SCF or CASCI")
@@ -184,6 +200,7 @@ def energy(mf):
         xc="hf"
         if isinstance(mf, casci.CASCI)
         else getattr(mf, "xc", "HF").upper().replace(" ", ""),
+        model=model,
     )
 
     if isinstance(mf, _DFTD4):
@@ -209,7 +226,9 @@ def energy(mf):
         def energy_nuc(self) -> float:
             enuc = mf.__class__.energy_nuc(self)
             if self.with_dftd4:
-                enuc += self.with_dftd4.kernel()[0]
+                edisp = self.with_dftd4.kernel()[0]
+                self.scf_summary["dispersion"] = edisp
+                enuc += edisp
             return enuc
 
         def reset(self, mol=None) -> "DFTD4":
@@ -225,7 +244,7 @@ def energy(mf):
     return DFTD4(mf, with_dftd4)
 
 
-def grad(mfgrad):
+def grad(mfgrad: GradientsBase):
     """
     Apply DFT-D4 corrections to SCF or MCSCF nuclear gradients methods
     by returning an instance of a new class built from the original class.
@@ -266,9 +285,8 @@ def grad(mfgrad):
     5 H    -0.0158316004     0.0230596847    -0.0218908543
     ----------------------------------------------
     """
-    from pyscf.grad import rhf as rhf_grad
 
-    if not isinstance(mfgrad, rhf_grad.Gradients):
+    if not isinstance(mfgrad, GradientsBase):
         raise TypeError("mfgrad must be an instance of Gradients")
 
     # Ensure that the zeroth order results include DFTD4 corrections

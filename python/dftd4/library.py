@@ -25,13 +25,13 @@ Example
 -------
 >>> from dftd4.library import get_api_version
 >>> get_api_version()
-'3.4.0'
+'4.0.1'
 """
 
 import functools
 
 try:
-    from ._libdftd4 import ffi, lib
+    from ._libdftd4 import ffi, lib  # type: ignore
 except ImportError:
     raise ImportError("dftd4 C extension unimportable, cannot use C-API")
 
@@ -111,14 +111,26 @@ def _delete_model(error) -> None:
 
 
 def new_d4_model(mol):
-    """Create new dftd4 dispersion model object"""
+    """Create new dftd4 D4 dispersion model object"""
     return ffi.gc(error_check(lib.dftd4_new_d4_model)(mol), _delete_model)
 
 
+def new_d4s_model(mol):
+    """Create new dftd4 D4S dispersion model object"""
+    return ffi.gc(error_check(lib.dftd4_new_d4s_model)(mol), _delete_model)
+
+
 def custom_d4_model(mol, ga, gc, wf):
-    """Create new dftd4 dispersion model object"""
+    """Create new dftd4 D4 dispersion model object"""
     return ffi.gc(
         error_check(lib.dftd4_custom_d4_model)(mol, ga, gc, wf), _delete_model
+    )
+
+
+def custom_d4s_model(mol, ga, gc):
+    """Create new dftd4 D4S dispersion model object"""
+    return ffi.gc(
+        error_check(lib.dftd4_custom_d4s_model)(mol, ga, gc), _delete_model
     )
 
 

@@ -8,7 +8,7 @@ import dftd4
 
 project = "DFT-D4"
 author = "Grimme group"
-copyright = f"2017–2022 {author}"
+copyright = f"2017–2024 {author}"
 
 extensions = [
     "sphinx_copybutton",
@@ -33,7 +33,6 @@ html_theme_options = {
     "use_download_button": False,
     "path_to_docs": "doc",
     "show_navbar_depth": 3,
-    "logo_only": False,
 }
 
 html_sidebars = {}

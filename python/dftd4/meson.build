@@ -21,6 +21,7 @@ python = pymod.find_installation(
   get_option('python_version'),
   modules: [
     'cffi',
+    'setuptools',
   ],
 )
 python_dep = python.dependency(required: true)
@@ -70,11 +71,13 @@ dftd4_pyext = python.extension_module(
 pysrcs = files(
   '__init__.py',
   'ase.py',
+  'data.py',
   'interface.py',
   'library.py',
   'parameters.py',
   'pyscf.py',
   'qcschema.py',
+  'references.json',
   'test_ase.py',
   'test_interface.py',
   'test_library.py',
@@ -91,6 +94,7 @@ if install
   python.install_sources(
     pysrcs,
     subdir: 'dftd4',
+    pure: false,
   )
 endif
 

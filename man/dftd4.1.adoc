@@ -5,17 +5,29 @@
 dftd4 - Generally Applicable Atomic-Charge Dependent London Dispersion Correction.
 
 == Synopsis
-*dftd4* [_options_] _input_
+*dftd4* [run|param] [_options_] _input_
 
 
 == Description
 
-Takes an geometry input to calculate the D4 dispersion correction.
+Takes an geometry input to calculate the D4(S) dispersion correction.
 Periodic calculations are performed automatically for periodic input formats.
+Reads .CHRG file (if present) from the same directory as the input.
 Specify the functional to select the correct parameters.
 
 
-== Options
+== Commands
+
+*run*::
+     Evaluate dispersion correction on the provided input structure.
+     Periodic calculations are performed automatically for periodic inputs
+     If no command is specified run is selected by default.
+
+*param*::
+     Inspect damping parameters.
+
+
+== Options: run
 
 *-c, --charge* _integer_::
      Set charge to molecule,
@@ -35,8 +47,14 @@ Specify the functional to select the correct parameters.
      (default: 3.0 and 2.0)
 
 *--wfactor* _real_::
-     Adjust weighting factor for the Gaussian interpolation
+     Adjust weighting factor for the Gaussian interpolation (only D4)
      (default: 6.0)
+
+*-m, --model* _string_::
+     use either standard D4 (default) or the smoothed D4S model
+
+*--qmodel* _string_::
+     use specific charge model (options: EEQ (default), EEQBC)
 
 *-g, --grad* [_file_]::
      prints analytical gradient to file,
@@ -72,3 +90,9 @@ Specify the functional to select the correct parameters.
 
 *-h, --help*::
      Show this message
+
+
+== Options: param
+
+*--list, --funcs, -l*::
+     List all available functionals (keywords for *-f, --func*)

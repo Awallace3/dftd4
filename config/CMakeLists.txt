@@ -18,6 +18,7 @@ option(BUILD_SHARED_LIBS "Whether the libraries built should be shared" FALSE)
 
 option(WITH_API "Enable support for C API via iso_c_binding module" TRUE)
 option(WITH_OpenMP "Enable support for shared memory parallelisation with OpenMP" TRUE)
+option(WITH_ILP64 "Enable support for ILP64 BLAS/LAPACK calls" FALSE)
 option(WITH_API_V2 "Enable the compatibility layer for the dftd4 2.5.x API" FALSE)
 if(NOT DEFINED "${PROJECT_NAME}-dependeny-method")
   set(
@@ -37,6 +38,31 @@ set(
   "${${PROJECT_NAME}-module-dir}"
 )
 set(module-dir "${module-dir}" PARENT_SCOPE)
+
+# Compiler-specific configurations
+
+# gfortran "Interface mismatch" bug (119928)
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+  if(CMAKE_Fortran_COMPILER_VERSION VERSION_GREATER_EQUAL "15.0"
+     AND CMAKE_Fortran_COMPILER_VERSION VERSION_LESS "15.2")
+    message(FATAL_ERROR
+      "Unsupported GNU Fortran version ${CMAKE_Fortran_COMPILER_VERSION}. "
+      "This release has a known issue (fixed in 15.2). "
+      "Please use GCC >= 15.2 or < 15.0, or a different Fortran compiler.")
+  endif()
+endif()
+
+if(
+  "${CMAKE_Fortran_COMPILER_ID}" STREQUAL "PGI"
+  OR "${CMAKE_Fortran_COMPILER_ID}" STREQUAL "NVHPC"
+  OR "${CMAKE_Fortran_COMPILER_ID}" STREQUAL "Flang"
+)
+  set(
+    CMAKE_Fortran_FLAGS
+    "${CMAKE_Fortran_FLAGS} -Mbackslash -Mallocatable=03"
+    PARENT_SCOPE
+  )
+endif()
 
 # Set build type as CMake does not provide defaults
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)

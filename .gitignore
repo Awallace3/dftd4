@@ -32,9 +32,17 @@
 *.app
 
 # Build directories
-/build*/
+**/*build*/
+**/install*/
 /_*/
+
 
 # Python files
 __pycache__
 build.sh
+.idea/
+.venv*
+
+# Project-specific files
+.EDISP
+dftd4.txt

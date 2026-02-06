@@ -1,14 +1,32 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "doc*/**"
+      - "./*.ya?ml"
+      - "**/*.adoc"
+      - "**/*.md"
+      - "**/*.rst"
+
+  pull_request:
+    paths-ignore:
+      - "doc*/**"
+      - "./*.ya?ml"
+      - "**/*.adoc"
+      - "**/*.md"
+      - "**/*.rst"
+
+  workflow_dispatch:
 
 env:
-  M_BUILD_DIR: _build_meson
-  C_BUILD_DIR: _build_cmake
+  BUILD_DIR: _build
   PIP_PACKAGES: >-
-    meson==0.55.3
-    ninja
+    meson!=1.8.0
     cmake
+    ninja
     gcovr
   PIP_EXTRAS: >-
     pkgconfig
@@ -16,153 +34,349 @@ env:
     pytest-cov
     cffi
     numpy
-    qcelemental
     ase
+    matplotlib
+    qcelemental
+    setuptools
     tomli
-    pyscf
+  LINUX_INTEL_COMPONENTS: >-
+    intel-oneapi-compiler-fortran-2021.2.0
+    intel-oneapi-compiler-dpcpp-cpp-and-cpp-classic-2021.2.0
+    intel-oneapi-mkl-2021.2.0
+    intel-oneapi-mkl-devel-2021.2.0
 
 jobs:
-  gcc-build:
+  build:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        gcc_v: [9]
+        build: [meson, cmake]
+        build-type: [debug]
+        compiler: [gnu]
+        version: [14]
+
+        include:
+          - os: ubuntu-22.04
+            build: cmake
+            build-type: debug
+            compiler: gnu
+            version: 9
+
+          - os: ubuntu-24.04
+            build: meson
+            build-type: coverage
+            compiler: gnu
+            version: 9
+
+          - os: ubuntu-24.04
+            build: meson
+            build-type: debug
+            compiler: gnu
+            version: 10
+
+          - os: ubuntu-24.04
+            build: meson
+            build-type: debug
+            compiler: gnu
+            version: 13
+
+          - os: ubuntu-24.04
+            build: meson
+            build-type: debug
+            compiler: gnu
+            version: 14
+
+          - os: ubuntu-24.04
+            build: meson
+            build-type: debug
+            compiler: intel
+            version: 2021.2.0
+
+          - os: ubuntu-24.04
+            build: fpm
+            build-type: debug
+            compiler: gnu
+            version: 10
+
+          - os: macos-15-intel
+            build: cmake
+            build-type: debug
+            compiler: gnu
+            version: 14
+
+          - os: macos-15-intel
+            build: meson
+            build-type: debug
+            compiler: gnu
+            version: 14
+
+    defaults:
+      run:
+        shell: ${{ matrix.shell || 'bash' }}
 
     env:
-      FC: gfortran
-      CC: gcc
-      GCC_V: ${{ matrix.gcc_v }}
-      OMP_NUM_THREADS: 2,1
-      PYTHON_V: 3.8
+      FC: ${{ matrix.compiler == 'intel' && 'ifort' || 'gfortran' }}
+      CC: ${{ matrix.compiler == 'intel' && 'icc' || 'gcc' }}
+      GCC_V: ${{ matrix.version }}
+      PYTHON_V: 3.9
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ env.PYTHON_V }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_V }}
 
-    - name: Install GCC (OSX)
-      if: contains(matrix.os, 'macos')
-      run: |
-        ln -s /usr/local/bin/gfortran-${{ env.GCC_V }} /usr/local/bin/gfortran
-        ln -s /usr/local/bin/gcc-${{ env.GCC_V }} /usr/local/bin/gcc
-        ln -s /usr/local/bin/g++-${{ env.GCC_V }} /usr/local/bin/g++
+      - name: Link pre-installed GCC and FC (MacOS - ARM)
+        if: ${{ contains(matrix.os, 'macos') && ! contains(matrix.os, '15-intel') && matrix.compiler == 'gnu' }}
+        run: |
+          brew install openblas
+          gfortran_path=$( which gfortran-${GCC_V} )
+          gcc_path=$( which gcc-${GCC_V} )
+          gplusplus_path=$( which g++-${GCC_V} )
+          export FC=$gfortran_path
+          export CC=$gcc_path
+          export CXX=$gplusplus_path
+          ln -s $gfortran_path /usr/local/bin/gfortran
+          ln -s $gcc_path /usr/local/bin/gcc
+          ln -s $gplusplus_path /usr/local/bin/g++
+          echo "PKG_CONFIG_PATH=/opt/homebrew/opt/openblas/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LDFLAGS=-L/opt/homebrew/opt/openblas/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I/opt/homebrew/opt/openblas/include" >> $GITHUB_ENV
 
-    - name: Install GCC (Linux)
-      if: contains(matrix.os, 'ubuntu')
-      run: >-
-        sudo update-alternatives
-        --install /usr/bin/gcc gcc /usr/bin/gcc-${{ env.GCC_V }} 100
-        --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-${{ env.GCC_V }}
-        --slave /usr/bin/gcov gcov /usr/bin/gcov-${{ env.GCC_V }}
+          brew install libffi
+          export LDFLAGS="-L$(brew --prefix libffi)/lib"
+          export CPPFLAGS="-I$(brew --prefix libffi)/include"
+        env:
+          GCC_V: ${{ env.GCC_V }}
 
-    - name: Install meson and test dependencies
-      run: pip3 install ${{ env.PIP_PACKAGES }} ${{ env.PIP_EXTRAS }}
+      - name: Install GCC (MacOS - x86_64)
+        if: ${{ contains(matrix.os, 'macos-15-intel') && matrix.compiler == 'gnu' }}
+        run: |
+          brew install gcc@$GCC_V openblas
 
-    - name: Configure build
-      run: >-
-        meson setup ${{ env.M_BUILD_DIR }}
-        --buildtype=debug
-        --prefix=$PWD/_dist
-        --libdir=lib
-        --warnlevel=0
-        -Db_coverage=${{ env.COVERAGE }}
-        -Dlapack=netlib
-        -Dpython=true
-        -Dapi_v2=true
-      env:
-        COVERAGE: ${{ contains(matrix.os, 'ubuntu') && 'true' || 'false' }}
+          ln -sf "$(brew --prefix gcc@${GCC_V})/bin/gfortran-${GCC_V}" /usr/local/bin/gfortran
+          ln -sf "$(brew --prefix gcc@${GCC_V})/bin/gcc-${GCC_V}" /usr/local/bin/gcc
+          ln -sf "$(brew --prefix gcc@${GCC_V})/bin/g++-${GCC_V}" /usr/local/bin/g++
 
-    - name: Build library
-      run: meson compile -C ${{ env.M_BUILD_DIR }}
+          echo "PKG_CONFIG_PATH=$(brew --prefix openblas)/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$(brew --prefix openblas)/lib"                 >> $GITHUB_ENV
+          echo "CPPFLAGS=-I$(brew --prefix openblas)/include"            >> $GITHUB_ENV
+        env:
+          GCC_V: ${{ env.GCC_V }}
 
-    - name: Run unit tests
-      run: |
-         meson test -C ${{ env.M_BUILD_DIR }} --print-errorlogs --no-rebuild --num-processes 2 -t 2
+      - name: Install GCC (Linux)
+        if: ${{ contains(matrix.os, 'ubuntu') && matrix.compiler == 'gnu' }}
+        run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y gcc-${GCC_V} gfortran-${GCC_V}
+          sudo update-alternatives \
+            --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_V} 100 \
+            --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_V} \
+            --slave /usr/bin/gcov gcov /usr/bin/gcov-${GCC_V}
+          sudo apt-get install -y liblapack-dev
+        env:
+          GCC_V: ${{ env.GCC_V }}
 
-    - name: Create coverage report
-      if: contains(matrix.os, 'ubuntu')
-      run: |
-         ninja -C ${{ env.M_BUILD_DIR }} coverage
+      - name: Install GCC (Windows)
+        if: ${{ contains(matrix.os, 'windows') && matrix.compiler == 'msys' }}
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            git
+            mingw-w64-x86_64-gcc-fortran
+            mingw-w64-x86_64-openblas
+            mingw-w64-x86_64-lapack
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-meson
+            mingw-w64-x86_64-ninja
 
-    - name: Install project
-      run: |
-        meson install -C ${{ env.M_BUILD_DIR }} --no-rebuild
-        echo "DFTD4_PREFIX=$PWD/_dist" >> $GITHUB_ENV
+      - name: Install fpm
+        if: ${{ matrix.build == 'fpm' }}
+        uses: fortran-lang/setup-fpm@v7  # fpm 0.11.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Configure CMake build
-      run: >-
-        cmake
-        -B ${{ env.C_BUILD_DIR }}
-        -G Ninja
-        -DCMAKE_INSTALL_PREFIX=$PWD/_cdist
+      - name: Prepare for cache restore
+        if: ${{ matrix.compiler == 'intel' }}
+        run: |
+          sudo mkdir -p /opt/intel
+          sudo chown $USER /opt/intel
 
-    - name: Build project (CMake)
-      run: cmake --build ${{ env.C_BUILD_DIR }}
+      - name: Cache Intel install
+        if: ${{ matrix.compiler == 'intel' }}
+        id: cache-install
+        uses: actions/cache@v4
+        with:
+          path: /opt/intel/oneapi
+          key: install-${{ matrix.compiler }}-${{ matrix.version }}-${{ matrix.os }}
 
-    - name: Run unit tests (CTest)
-      run: ctest
-      working-directory: ${{ env.C_BUILD_DIR }}
+      - name: Install Intel (Linux)
+        if: ${{ contains(matrix.os, 'ubuntu') && contains(matrix.compiler, 'intel') && steps.cache-install.outputs.cache-hit != 'true' }}
+        run: |
+          wget https://apt.repos.intel.com/intel-gpg-keys/$KEY
+          sudo apt-key add $KEY
+          rm $KEY
+          echo "deb https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
+          sudo apt-get update
+          sudo apt-get install $PKG
+        env:
+          KEY: GPG-PUB-KEY-INTEL-SW-PRODUCTS-2023.PUB
+          PKG: ${{ env.LINUX_INTEL_COMPONENTS }}
 
-    - name: Install project (CMake)
-      run: cmake --install ${{ env.C_BUILD_DIR }}
+      - name: Setup Intel oneAPI environment
+        if: ${{ matrix.compiler == 'intel' }}
+        run: |
+          source /opt/intel/oneapi/setvars.sh
+          printenv >> $GITHUB_ENV
 
-    - name: Create package
-      run: |
-        tar cvf ${{ env.OUTPUT }} _dist
-        xz -T0 ${{ env.OUTPUT }}
-        echo "DFTD4_OUTPUT=${{ env.OUTPUT }}.xz" >> $GITHUB_ENV
-      env:
-        OUTPUT: dftd4-gcc-${{ matrix.gcc_v }}-${{ matrix.os }}.tar
+      - name: Install build and test dependencies
+        if: ${{ ! contains(matrix.os, 'windows') }}
+        run: pip3 install $PIP_PACKAGES $PIP_EXTRAS
+        env:
+          PIP_PACKAGES: ${{ env.PIP_PACKAGES }}
+          PIP_EXTRAS: ${{ env.PIP_EXTRAS }}
 
-    - name: Upload package
-      uses: actions/upload-artifact@v2
-      with:
-        name: ${{ env.DFTD4_OUTPUT }}
-        path: ${{ env.DFTD4_OUTPUT }}
+      - name: Configure build (meson)
+        if: ${{ matrix.build == 'meson' }}
+        run: >-
+          meson setup $BUILD_DIR
+          --buildtype=debug
+          --prefix=$PWD/_dist
+          --libdir=lib
+          --warnlevel=0
+          -Db_coverage=$COVERAGE
+          $MESON_ARGS
+        env:
+          BUILD_DIR: ${{ env.BUILD_DIR }}
+          COVERAGE: ${{ matrix.build-type == 'coverage' }}
+          MESON_ARGS: >-
+            ${{ matrix.compiler == 'intel' && '-Dfortran_link_args=-qopenmp -Dapi=false' || '' }}
+            ${{ contains(matrix.os, 'macos') && '-Dlapack=openblas' || '' }}
+            ${{ contains(matrix.os, 'windows') && '-Dfortran_link_args=-Wl,--allow-multiple-definition' || '' }}
 
-    - name: Test Python API
-      run: pytest --pyargs dftd4 --cov=dftd4 -vv
-      env:
-        LD_LIBRARY_PATH: ${{ env.LD_LIBRARY_PATH }}:${{ env.DFTD4_PREFIX }}/lib
-        PYTHONPATH: ${{ env.PYTHONPATH }}:${{ env.DFTD4_PREFIX }}/lib/python${{ env.PYTHON_V }}/site-packages
+      - name: Configure build (CMake)
+        if: ${{ matrix.build == 'cmake' }}
+        run: >-
+          cmake -B${BUILD_DIR}
+          -GNinja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_INSTALL_PREFIX=$PWD/_dist
+          -DCMAKE_INSTALL_LIBDIR=lib
+        env:
+          BUILD_DIR: ${{ env.BUILD_DIR }}
 
-    - name: Upload coverage report
-      uses: codecov/codecov-action@v1
+      - name: Build library (fpm)
+        if: ${{ matrix.build == 'fpm' }}
+        run: |
+          fpm --version
+          fpm build
 
-    - name: Configure out-of-tree build
-      run: >-
-        meson setup ${{ env.M_BUILD_DIR }}
-        --prefix=$PWD/_dist
-        --libdir=lib
-        --warnlevel=0
-      working-directory: python
-      env:
-        PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH }}:${{ env.DFTD4_PREFIX }}/lib/pkgconfig
+      - name: Build library
+        if: ${{ matrix.build != 'fpm' }}
+        run: ninja -C $BUILD_DIR
+        env:
+          BUILD_DIR: ${{ env.BUILD_DIR }}
 
-    - name: Build Python extension module
-      run: meson compile -C ${{ env.M_BUILD_DIR }}
-      working-directory: python
+      - name: Run unit tests (fpm)
+        if: ${{ matrix.build == 'fpm' }}
+        run: fpm test
 
-    - name: Install Python extension module (meson)
-      run: meson install -C ${{ env.M_BUILD_DIR }} --no-rebuild
-      working-directory: python
+      - name: Run unit tests (meson)
+        if: ${{ matrix.build == 'meson' }}
+        run: >-
+          meson test
+          -C $BUILD_DIR
+          --print-errorlogs
+          --no-rebuild
+          --num-processes 1
+          --suite dftd4
+          -t 2
+        env:
+          OMP_NUM_THREADS: 1,2,1
+          BUILD_DIR: ${{ env.BUILD_DIR }}
 
+      - name: Run benchmarks
+        if: ${{ matrix.build == 'meson' }}
+        run: >-
+          meson test
+          -C $BUILD_DIR
+          --print-errorlogs
+          --no-rebuild
+          --num-processes 1
+          --suite dftd4
+          -t 2
+          --benchmark
+        env:
+          BUILD_DIR: ${{ env.BUILD_DIR }}
 
-  python-build:
+      - name: Run unit tests (ctest)
+        if: ${{ matrix.build == 'cmake' }}
+        run: |
+          ctest --output-on-failure --parallel 2
+        working-directory: ${{ env.BUILD_DIR }}
+        env:
+          OMP_NUM_THREADS: 1,2,1
+
+      - name: Create coverage report
+        if: ${{ matrix.build == 'meson' && matrix.build-type == 'coverage' }}
+        run: ninja -C $BUILD_DIR coverage
+        env:
+          BUILD_DIR: ${{ env.BUILD_DIR }}
+
+      - name: Install project
+        if: ${{ matrix.build != 'fpm' }}
+        run: |
+          ninja -C $BUILD_DIR install
+          echo "DFTD4_PREFIX=$PWD/_dist" >> $GITHUB_ENV
+        env:
+          BUILD_DIR: ${{ env.BUILD_DIR }}
+
+      - name: Create package
+        if: ${{ matrix.build == 'meson' && matrix.version == 14 && matrix.build-type == 'debug' && matrix.compiler == 'gnu' }}
+        run: |
+          tar cvf ${OUTPUT} _dist
+          xz -T0 $OUTPUT
+          echo "DFTD4_OUTPUT=${OUTPUT}.xz" >> $GITHUB_ENV
+        env:
+          OUTPUT: dftd4-${{ matrix.compiler }}-${{ matrix.version }}-${{ matrix.os }}.tar
+
+      - name: Upload package
+        if: ${{ matrix.build == 'meson' && matrix.version == 14 && matrix.build-type == 'debug' && matrix.compiler == 'gnu' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DFTD4_OUTPUT }}
+          path: ${{ env.DFTD4_OUTPUT }}
+
+      - name: Upload coverage report
+        if: ${{ matrix.build == 'meson' && matrix.build-type == 'coverage' }}
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  python:
     needs:
-      - gcc-build
+      - build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        gcc_v: [9]
-        python_v: ['3.7', '3.8', '3.9']
+        os: [ubuntu-latest]
+        gcc_v: [14]
+        python_v: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+        include:
+          - os: macos-latest
+            gcc_v: 14
+            python_v: "3.9"
 
     env:
       FC: gfortran
@@ -170,290 +384,86 @@ jobs:
       GCC_V: ${{ matrix.gcc_v }}
       PYTHON_V: ${{ matrix.python_v }}
       OMP_NUM_THREADS: 2,1
-      DFTD4_OUTPUT: dftd4-gcc-${{ matrix.gcc_v }}-${{ matrix.os }}.tar.xz
+      DFTD4_OUTPUT: dftd4-gnu-${{ matrix.gcc_v }}-${{ matrix.os }}.tar.xz
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-    - uses: actions/setup-python@v1
-      with:
-        python-version: ${{ matrix.python_v }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python_v }}
 
-    - name: Install GCC (OSX)
-      if: contains(matrix.os, 'macos')
-      run: |
-        ln -s /usr/local/bin/gfortran-${{ env.GCC_V }} /usr/local/bin/gfortran
-        ln -s /usr/local/bin/gcc-${{ env.GCC_V }} /usr/local/bin/gcc
-        ln -s /usr/local/bin/g++-${{ env.GCC_V }} /usr/local/bin/g++
+      - name: Link pre-installed GCC and FC (macOS)
+        if: ${{ contains(matrix.os, 'macos') }}
+        run: |
+          brew install openblas
+          gfortran_path=$( which gfortran-${GCC_V} )
+          gcc_path=$( which gcc-${GCC_V} )
+          gplusplus_path=$( which g++-${GCC_V} )
+          export FC=$gfortran_path
+          export CC=$gcc_path
+          export CXX=$gplusplus_path
+          ln -s $gfortran_path /usr/local/bin/gfortran
+          ln -s $gcc_path /usr/local/bin/gcc
+          ln -s $gplusplus_path /usr/local/bin/g++
+          echo "PKG_CONFIG_PATH=/opt/homebrew/opt/openblas/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LDFLAGS=-L/opt/homebrew/opt/openblas/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I/opt/homebrew/opt/openblas/include" >> $GITHUB_ENV
+        env:
+          GCC_V: ${{ env.GCC_V }}
 
-    - name: Install GCC (Linux)
-      if: contains(matrix.os, 'ubuntu')
-      run: >-
-        sudo update-alternatives
-        --install /usr/bin/gcc gcc /usr/bin/gcc-${{ env.GCC_V }} 100
-        --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-${{ env.GCC_V }}
-        --slave /usr/bin/gcov gcov /usr/bin/gcov-${{ env.GCC_V }}
+      - name: Install GCC (Linux)
+        if: ${{ contains(matrix.os, 'ubuntu') }}
+        run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo update-alternatives \
+          --install /usr/bin/gcc gcc /usr/bin/gcc-${GCC_V} 100 \
+          --slave /usr/bin/gfortran gfortran /usr/bin/gfortran-${GCC_V} \
+          --slave /usr/bin/gcov gcov /usr/bin/gcov-${GCC_V}
+          sudo apt-get install liblapack-dev
+        env:
+          GCC_V: ${{ env.GCC_V }}
 
-    - name: Install meson and test dependencies
-      run: pip3 install ${{ env.PIP_EXTRAS }}
+      - name: Install meson and test dependencies
+        run: pip3 install $PIP_EXTRAS
+        env:
+          PIP_EXTRAS: ${{ env.PIP_EXTRAS }}
 
-    - name: Download package
-      uses: actions/download-artifact@v2
-      with:
-        name: ${{ env.DFTD4_OUTPUT }}
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.DFTD4_OUTPUT }}
 
-    - name: Unpack package
-      run: |
-        tar xvf ${{ env.DFTD4_OUTPUT }}
-        echo "DFTD4_PREFIX=$PWD/_dist" >> $GITHUB_ENV
+      - name: Unpack package
+        run: |
+          tar xvf $DFTD4_OUTPUT
+          echo "DFTD4_PREFIX=$PWD/_dist" >> $GITHUB_ENV
+        env:
+          DFTD4_OUTPUT: ${{ env.DFTD4_OUTPUT }}
 
-    - name: Copy parameter file
-      run: |
-        cp assets/parameters.toml python/dftd4
+      - name: Copy parameter file
+        run: |
+          cp assets/parameters.toml python/dftd4
 
-    - name: Install Python extension module (pip)
-      run: pip3 install . --user
-      working-directory: python
-      env:
-        PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH }}:${{ env.DFTD4_PREFIX }}/lib/pkgconfig
+      - name: Install Python extension module (pip)
+        run: pip3 install . -vv
+        working-directory: python
+        env:
+          PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH }}:${{ env.DFTD4_PREFIX }}/lib/pkgconfig
 
-    - name: Test Python API
-      run: pytest --pyargs dftd4 --cov=dftd4 -vv
-      env:
-        LD_LIBRARY_PATH: ${{ env.LD_LIBRARY_PATH }}:${{ env.DFTD4_PREFIX }}/lib
+      - name: Test Python API
+        run: pytest --pyargs dftd4 --cov=dftd4 -vv
+        env:
+          LD_LIBRARY_PATH: ${{ env.LD_LIBRARY_PATH }}:${{ env.DFTD4_PREFIX }}/lib
+          DYLD_LIBRARY_PATH: ${{ env.DYLD_LIBRARY_PATH }}:${{ env.DFTD4_PREFIX }}/lib
 
-    - name: Upload coverage report
-      uses: codecov/codecov-action@v1
+      - run: pip3 install coverage
 
-
-  # Test native MinGW Windows build
-  mingw-build:
-    runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include: [
-          { msystem: MINGW64, arch: x86_64 },
-        # { msystem: MINGW32, arch: i686   }
-        ]
-    defaults:
-      run:
-        shell: msys2 {0}
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-
-    - name: Setup MSYS2 toolchain
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: ${{ matrix.msystem }}
-        update: false
-        install: >-
-          git
-          mingw-w64-${{ matrix.arch }}-gcc-fortran
-          mingw-w64-${{ matrix.arch }}-cmake
-          mingw-w64-${{ matrix.arch }}-openblas
-          mingw-w64-${{ matrix.arch }}-lapack
-          mingw-w64-${{ matrix.arch }}-python
-          mingw-w64-${{ matrix.arch }}-python-pip
-          mingw-w64-${{ matrix.arch }}-ninja
-
-    - name: Install meson
-      run: pip3 install meson==0.55.3
-
-    - name: Configure build
-      run: meson setup ${{ env.M_BUILD_DIR }} -Dlapack=netlib --warnlevel=0
-      env:
-        FC: gfortran
-        CC: gcc
-
-    - name: Build project
-      run: meson compile -C ${{ env.M_BUILD_DIR }}
-
-    - name: Run unit tests
-      run: meson test -C ${{ env.M_BUILD_DIR }} --print-errorlogs --no-rebuild
-      env:
-        OMP_NUM_THREADS: 2,1
-
-    # FIXME: CMake 3.20.3 broken due to wrong internal usage of git command
-    #- name: Configure cmake build
-    #  run: cmake -B ${{ env.C_BUILD_DIR }} -G Ninja -DWITH_BLAS=FALSE
-
-    #- name: Build project (CMake)
-    #  run: cmake --build ${{ env.C_BUILD_DIR }}
-
-    #- name: Run unit tests (CTest)
-    #  run: ctest
-    #  working-directory: ${{ env.C_BUILD_DIR }}
-    #  env:
-    #    OMP_NUM_THREADS: 2,1
-
-  # Build with Intel toolchain
-  intel-build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-20.04]
-        fc: [ifort]
-        cc: [icc]
-
-    env:
-      FC: ${{ matrix.fc }}
-      CC: ${{ matrix.cc }}
-      APT_PACKAGES: >-
-        intel-oneapi-compiler-fortran
-        intel-oneapi-compiler-dpcpp-cpp-and-cpp-classic
-        intel-oneapi-mkl-devel
-        asciidoctor
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-
-    - uses: actions/setup-python@v1
-      with:
-        python-version: '3.x'
-
-    - name: Add Intel repository
-      run: |
-        wget https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS-2023.PUB
-        sudo apt-key add GPG-PUB-KEY-INTEL-SW-PRODUCTS-2023.PUB
-        rm GPG-PUB-KEY-INTEL-SW-PRODUCTS-2023.PUB
-        echo "deb https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
-        sudo apt-get update
-
-    - name: Install Intel oneAPI compiler
-      run: |
-        sudo apt-get install ${{ env.APT_PACKAGES }}
-        source /opt/intel/oneapi/setvars.sh
-        printenv >> $GITHUB_ENV
-
-    - name: Install meson
-      run: pip3 install meson ninja cmake
-
-    - name: Configure meson build
-      run: >-
-        meson setup ${{ env.M_BUILD_DIR }}
-        --prefix=/
-        --libdir=lib
-        --default-library=static
-        -Dfortran_link_args="-static -qopenmp"
-
-    - name: Build library
-      run: meson compile -C ${{ env.M_BUILD_DIR }}
-
-    - name: Run unit tests
-      run: meson test -C ${{ env.M_BUILD_DIR }} --print-errorlogs --no-rebuild
-      env:
-        OMP_NUM_THREADS: 2,1
-
-    - name: Install package
-      run: meson install -C ${{ env.M_BUILD_DIR }} --no-rebuild
-      env:
-        DESTDIR: ${{ env.PWD }}/dftd4-bleed
-
-    - name: Configure cmake build
-      run: cmake -B ${{ env.C_BUILD_DIR }} -G Ninja
-
-    - name: Build library (CMake)
-      run: cmake --build ${{ env.C_BUILD_DIR }}
-
-    - name: Run unit tests (CTest)
-      run: ctest
-      working-directory: ${{ env.C_BUILD_DIR }}
-
-    - name: Create package
-      if: github.event_name == 'push'
-      run: |
-        tar cvf dftd4-bleed.tar dftd4-bleed
-        xz --threads=0 dftd4-bleed.tar
-
-    - name: Upload binary
-      if: github.event_name == 'push'
-      uses: actions/upload-artifact@v2
-      with:
-        name: dftd4-bleed.tar.xz
-        path: dftd4-bleed.tar.xz
-
-  # Inspired from https://github.com/endless-sky/endless-sky
-  continuous-delivery:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    needs:
-      - intel-build
-
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      RELEASE_TAG: bleed
-      OUTPUT_INTEL: dftd4-bleed.tar.xz
-
-    steps:
-    - uses: actions/checkout@v2
-
-    - name: Install github-release
-      run: |
-        go get github.com/github-release/github-release
-        echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
-        echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-    - name: Set environment variables
-      run: |
-        echo "GITHUB_USER=$( echo ${{ github.repository }} | cut -d/ -f1 )" >> $GITHUB_ENV
-        echo "GITHUB_REPO=$( echo ${{ github.repository }} | cut -d/ -f2 )" >> $GITHUB_ENV
-
-    - name: Move/Create continuous tag
-      run: |
-        git tag --force ${{ env.RELEASE_TAG }} ${{ github.sha }}
-        git push --tags --force
-
-    - name: Get Time
-      run: echo "TIME=$(date -u '+%Y/%m/%d, %H:%M')" >> $GITHUB_ENV
-
-    - name: Check continuous release status
-      run: |
-        if ! github-release info -t ${{ env.RELEASE_TAG }} > /dev/null 2>&1; then
-          echo "RELEASE_COMMAND=release" >> $GITHUB_ENV
-        else
-          echo "RELEASE_COMMAND=edit" >> $GITHUB_ENV
-        fi
-
-    - name: Setup continuous release
-      run: >-
-        github-release ${{ env.RELEASE_COMMAND }}
-        --tag ${{ env.RELEASE_TAG }}
-        --name "Bleeding edge version"
-        --description "$DESCRIPTION"
-        --pre-release
-      env:
-        DESCRIPTION: |
-          Created on ${{ env.TIME }} UTC by @${{ github.actor }} with commit ${{ github.sha }}.
-          This is an automated distribution of the latest `dftd4` version. It contains the latest features and possibly also the newest bugs. Use with caution!
-          https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-    - name: Download Artifacts
-      uses: actions/download-artifact@v2
-      with:
-        path: ${{ github.workspace }} # This will download all files
-
-    - name: Create SHA256 checksum
-      run: |
-        cd ${{ env.OUTPUT_INTEL }}
-        sha256sum ${{ env.OUTPUT_INTEL }} > sha256.txt
-
-    - name: Add ${{ env.OUTPUT_INTEL }} to release tag
-      run: >-
-        github-release upload
-        --tag ${{ env.RELEASE_TAG }}
-        --replace
-        --name ${{ env.OUTPUT_INTEL }}
-        --file ${{ env.OUTPUT_INTEL }}/${{ env.OUTPUT_INTEL }}
-
-    - name: Add SHA256 checksums to release tag
-      run: >-
-        github-release upload
-        --tag ${{ env.RELEASE_TAG }}
-        --replace
-        --name sha256.txt
-        --file ${{ env.OUTPUT_INTEL }}/sha256.txt
+      - name: Upload coverage report
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

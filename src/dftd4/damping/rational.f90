@@ -58,6 +58,7 @@ contains
 !> Evaluation of the dispersion energy expression
 subroutine get_dispersion2(self, mol, trans, cutoff, r4r2, c6, dc6dcn, dc6dq, &
       & energy, dEdcn, dEdq, gradient, sigma)
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_dispersion2
 
    !> Damping parameters
    class(rational_damping_param), intent(in) :: self
@@ -146,12 +147,16 @@ subroutine get_dispersion_energy(self, mol, trans, cutoff, r4r2, c6, energy)
 
    LOGICAL :: file_exists
    integer :: unit
+   real(wp), allocatable :: energy_local(:)
    unit = 144
    ALLOCATE(c8, MOLD=c6)
    print *, "c6size", SIZE(c6)
    print *, "c8size", SIZE(c8)
    print *, SQRT(625.0)
    !TODO: write output files for C6, C8 and pair-interactions
+
+   ! Thread-private array for reduction
+   ! Set to 0 explicitly as the shared variants are potentially non-zero (inout)
 
    cutoff2 = cutoff*cutoff
 
@@ -163,13 +168,14 @@ subroutine get_dispersion_energy(self, mol, trans, cutoff, r4r2, c6, energy)
    OPEN(unit=unit, file='data1.json', status='new')
    write(unit, "(E14.7)") 100.0099999999
    CLOSE(1)
-
-
-   !$omp parallel do schedule(runtime) default(none) reduction(+:energy) &
+   !$omp parallel default(none) &
    !$omp shared(mol, self, c6, trans, cutoff2, r4r2) &
    !$omp private(iat, jat, izp, jzp, jtr, vec, r2, r0ij, rrij, c6ij, &
-   !$omp& t6, t8, edisp, dE)
-    ! PRINT *, "iat" !, "jat", "r2**0.5", "r0ij", "edisp", "dE"
+   !$omp& t6, t8, edisp, dE) &
+   !$omp shared(energy) &
+   !$omp private(energy_local)
+   allocate(energy_local(size(energy, 1)), source=0.0_wp)
+   !$omp do schedule(runtime)
    do iat = 1, mol%nat
       izp = mol%id(iat)
       do jat = 1, iat
@@ -191,13 +197,10 @@ subroutine get_dispersion_energy(self, mol, trans, cutoff, r4r2, c6, energy)
 
             dE = -c6ij*edisp * 0.5_wp
 
-            ! PRINT *, iat, jat, r2, r0ij, edisp, dE
-            ! PRINT *,c6ij, iat, jat, r2**0.5, r0ij,  edisp, dE
             PRINT *, iat, jat, r2**0.5, r0ij,  edisp, dE
-
-            energy(iat) = energy(iat) + dE
+            energy_local(iat) = energy_local(iat) + dE
             if (iat /= jat) then
-               energy(jat) = energy(jat) + dE
+               energy_local(jat) = energy_local(jat) + dE
             end if
             ! self check
             ! t6 = r2**6/(r2**6 + r0ij**6)
@@ -206,6 +209,12 @@ subroutine get_dispersion_energy(self, mol, trans, cutoff, r4r2, c6, energy)
          end do
       end do
    end do
+   !$omp end do
+   !$omp critical (get_dispersion_energy_)
+   energy(:) = energy(:) + energy_local(:)
+   !$omp end critical (get_dispersion_energy_)
+   deallocate(energy_local)
+   !$omp end parallel
 
 end subroutine get_dispersion_energy
 
@@ -257,13 +266,29 @@ subroutine get_dispersion_derivs(self, mol, trans, cutoff, r4r2, c6, dc6dcn, dc6
    real(wp) :: vec(3), r2, cutoff2, r0ij, rrij, c6ij, t6, t8, d6, d8, edisp, gdisp
    real(wp) :: dE, dG(3), dS(3, 3)
 
+   ! Thread-private arrays for reduction
+   ! Set to 0 explicitly as the shared variants are potentially non-zero (inout)
+   real(wp), allocatable :: energy_local(:)
+   real(wp), allocatable :: dEdcn_local(:)
+   real(wp), allocatable :: dEdq_local(:)
+   real(wp), allocatable :: gradient_local(:, :)
+   real(wp), allocatable :: sigma_local(:, :)
+
    cutoff2 = cutoff*cutoff
 
-   !$omp parallel do schedule(runtime) default(none) &
-   !$omp reduction(+:energy, gradient, sigma, dEdcn, dEdq) &
+   !$omp parallel default(none) &
    !$omp shared(mol, self, c6, dc6dcn, dc6dq, trans, cutoff2, r4r2) &
    !$omp private(iat, jat, izp, jzp, jtr, vec, r2, r0ij, rrij, c6ij, t6, t8, &
-   !$omp& d6, d8, edisp, gdisp, dE, dG, dS)
+   !$omp& d6, d8, edisp, gdisp, dE, dG, dS) &
+   !$omp shared(energy, gradient, sigma, dEdcn, dEdq) &
+   !$omp private(energy_local, gradient_local, sigma_local, dEdcn_local, &
+   !$omp& dEdq_local)
+   allocate(energy_local(size(energy, 1)), source=0.0_wp)
+   allocate(dEdcn_local(size(dEdcn, 1)), source=0.0_wp)
+   allocate(dEdq_local(size(dEdq, 1)), source=0.0_wp)
+   allocate(gradient_local(size(gradient, 1), size(gradient, 2)), source=0.0_wp)
+   allocate(sigma_local(size(sigma, 1), size(sigma, 2)), source=0.0_wp)
+   !$omp do schedule(runtime)
    do iat = 1, mol%nat
       izp = mol%id(iat)
       do jat = 1, iat
@@ -289,21 +314,35 @@ subroutine get_dispersion_derivs(self, mol, trans, cutoff, r4r2, c6, dc6dcn, dc6
             dG(:) = -c6ij*gdisp*vec
             dS(:, :) = spread(dG, 1, 3) * spread(vec, 2, 3) * 0.5_wp
 
-            energy(iat) = energy(iat) + dE
-            dEdcn(iat) = dEdcn(iat) - dc6dcn(iat, jat) * edisp
-            dEdq(iat) = dEdq(iat) - dc6dq(iat, jat) * edisp
-            sigma(:, :) = sigma + dS
+            energy_local(iat) = energy_local(iat) + dE
+            dEdcn_local(iat) = dEdcn_local(iat) - dc6dcn(iat, jat) * edisp
+            dEdq_local(iat) = dEdq_local(iat) - dc6dq(iat, jat) * edisp
+            sigma_local(:, :) = sigma_local + dS
             if (iat /= jat) then
-               energy(jat) = energy(jat) + dE
-               dEdcn(jat) = dEdcn(jat) - dc6dcn(jat, iat) * edisp
-               dEdq(jat) = dEdq(jat) - dc6dq(jat, iat) * edisp
-               gradient(:, iat) = gradient(:, iat) + dG
-               gradient(:, jat) = gradient(:, jat) - dG
-               sigma(:, :) = sigma + dS
+               energy_local(jat) = energy_local(jat) + dE
+               dEdcn_local(jat) = dEdcn_local(jat) - dc6dcn(jat, iat) * edisp
+               dEdq_local(jat) = dEdq_local(jat) - dc6dq(jat, iat) * edisp
+               gradient_local(:, iat) = gradient_local(:, iat) + dG
+               gradient_local(:, jat) = gradient_local(:, jat) - dG
+               sigma_local(:, :) = sigma_local + dS
             end if
          end do
       end do
    end do
+   !$omp end do
+   !$omp critical (get_dispersion_derivs_)
+   energy(:) = energy(:) + energy_local(:)
+   dEdcn(:) = dEdcn(:) + dEdcn_local(:)
+   dEdq(:) = dEdq(:) + dEdq_local(:)
+   gradient(:, :) = gradient(:, :) + gradient_local(:, :)
+   sigma(:, :) = sigma(:, :) + sigma_local(:, :)
+   !$omp end critical (get_dispersion_derivs_)
+   deallocate(energy_local)
+   deallocate(dEdcn_local)
+   deallocate(dEdq_local)
+   deallocate(gradient_local)
+   deallocate(sigma_local)
+   !$omp end parallel
 
 end subroutine get_dispersion_derivs
 
@@ -311,6 +350,7 @@ end subroutine get_dispersion_derivs
 !> Evaluation of the dispersion energy expression
 subroutine get_dispersion3(self, mol, trans, cutoff, r4r2, c6, dc6dcn, dc6dq, &
       & energy, dEdcn, dEdq, gradient, sigma)
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_dispersion3
 
    !> Damping parameters
    class(rational_damping_param), intent(in) :: self
@@ -360,6 +400,7 @@ end subroutine get_dispersion3
 
 !> Evaluation of the dispersion energy expression projected on atomic pairs
 subroutine get_pairwise_dispersion2(self, mol, trans, cutoff, r4r2, c6, energy)
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_pairwise_dispersion2
 
    !> Damping parameters
    class(rational_damping_param), intent(in) :: self
@@ -385,13 +426,21 @@ subroutine get_pairwise_dispersion2(self, mol, trans, cutoff, r4r2, c6, energy)
    integer :: iat, jat, izp, jzp, jtr
    real(wp) :: vec(3), r2, cutoff2, r0ij, rrij, c6ij, t6, t8, edisp, dE
 
+   ! Thread-private array for reduction
+   ! Set to 0 explicitly as the shared variants are potentially non-zero (inout)
+   real(wp), allocatable :: energy_local(:, :)
+
    if (abs(self%s6) < epsilon(1.0_wp) .and. abs(self%s8) < epsilon(1.0_wp)) return
    cutoff2 = cutoff*cutoff
 
-   !$omp parallel do schedule(runtime) default(none) reduction(+:energy) &
+   !$omp parallel default(none) &
    !$omp shared(mol, self, c6, trans, cutoff2, r4r2) &
    !$omp private(iat, jat, izp, jzp, jtr, vec, r2, r0ij, rrij, c6ij, &
-   !$omp& t6, t8, edisp, dE)
+   !$omp& t6, t8, edisp, dE) &
+   !$omp shared(energy) &
+   !$omp private(energy_local)
+   allocate(energy_local(size(energy, 1), size(energy, 2)), source=0.0_wp)
+   !$omp do schedule(runtime)
    do iat = 1, mol%nat
       izp = mol%id(iat)
       do jat = 1, iat
@@ -411,19 +460,26 @@ subroutine get_pairwise_dispersion2(self, mol, trans, cutoff, r4r2, c6, energy)
 
             dE = -c6ij*edisp * 0.5_wp
 
-            energy(jat, iat) = energy(jat, iat) + dE
+            energy_local(jat, iat) = energy_local(jat, iat) + dE
             if (iat /= jat) then
-               energy(iat, jat) = energy(iat, jat) + dE
+               energy_local(iat, jat) = energy_local(iat, jat) + dE
             end if
          end do
       end do
    end do
+   !$omp end do
+   !$omp critical (get_pairwise_dispersion2_)
+   energy(:, :) = energy(:, :) + energy_local(:, :)
+   !$omp end critical (get_pairwise_dispersion2_)
+   deallocate(energy_local)
+   !$omp end parallel
 
 end subroutine get_pairwise_dispersion2
 
 
 !> Evaluation of the dispersion energy expression
 subroutine get_pairwise_dispersion3(self, mol, trans, cutoff, r4r2, c6, energy)
+   !DEC$ ATTRIBUTES DLLEXPORT :: get_pairwise_dispersion3
 
    !> Damping parameters
    class(rational_damping_param), intent(in) :: self
@@ -451,20 +507,25 @@ subroutine get_pairwise_dispersion3(self, mol, trans, cutoff, r4r2, c6, energy)
    real(wp) :: r0ij, r0jk, r0ik, r0, r1, r2, r3, r5, rr, fdmp, ang
    real(wp) :: cutoff2, c9, dE
 
-    !> added variables by AMW
    real(wp) :: e_ATM
    LOGICAL :: file_exists
+   ! Thread-private arrays for reduction
+   ! Set to 0 explicitly as the shared variants are potentially non-zero (inout)
+   real(wp), allocatable :: energy_local(:, :)
 
    if (abs(self%s9) < epsilon(1.0_wp)) return
    cutoff2 = cutoff*cutoff
    e_ATM = 0
 
-   print *, "disp3"
-   !$omp parallel do schedule(runtime) default(none) reduction(+:energy) reduction(+:e_ATM) &
-   !$omp shared(mol, trans, c6, r4r2, cutoff2, self) &
+   !$omp parallel default(none) &
+   !$omp shared(mol, trans, c6, r4r2, cutoff2, self, file_exists) &
    !$omp private(iat, jat, kat, izp, jzp, kzp, jtr, ktr, vij, vjk, vik, &
    !$omp& r2ij, r2jk, r2ik, c6ij, c6jk, c6ik, triple, r0ij, r0jk, r0ik, r0, &
-   !$omp& r1, r2, r3, r5, rr, fdmp, ang, c9, dE)
+   !$omp& r1, r2, r3, r5, rr, fdmp, ang, c9, dE, e_atm) &
+   !$omp shared(energy) &
+   !$omp private(energy_local)
+   allocate(energy_local(size(energy, 1), size(energy, 2)), source=0.0_wp)
+   !$omp do schedule(runtime)
    do iat = 1, mol%nat
       izp = mol%id(iat)
       do jat = 1, iat
@@ -508,17 +569,20 @@ subroutine get_pairwise_dispersion3(self, mol, trans, cutoff, r4r2, c6, energy)
                   ! print *, iat, jat, kat, r0ij, r0, fdmp, ang, dE
                   ! print *, iat, jat, kat, r0ij, r0ik, r0jk, r0
                   print *, iat, jat, kat, c6ij, c6ik, c6jk, c9
-                  energy(jat, iat) = energy(jat, iat) - dE
-                  energy(kat, iat) = energy(kat, iat) - dE
-                  energy(iat, jat) = energy(iat, jat) - dE
-                  energy(kat, jat) = energy(kat, jat) - dE
-                  energy(iat, kat) = energy(iat, kat) - dE
-                  energy(jat, kat) = energy(jat, kat) - dE
+                  energy_local(jat, iat) = energy_local(jat, iat) - dE
+                  energy_local(kat, iat) = energy_local(kat, iat) - dE
+                  energy_local(iat, jat) = energy_local(iat, jat) - dE
+                  energy_local(kat, jat) = energy_local(kat, jat) - dE
+                  energy_local(iat, kat) = energy_local(iat, kat) - dE
+                  energy_local(jat, kat) = energy_local(jat, kat) - dE
                end do
             end do
          end do
       end do
    end do
+   !$omp end do
+   !$omp critical (get_pairwise_dispersion3_)
+   energy(:, :) = energy(:, :) + energy_local(:, :)
    INQUIRE(file=".ATM", EXIST=file_exists)
    if (file_exists) then
         open (unit= 91, file=".ATM", status="old")
@@ -527,6 +591,9 @@ subroutine get_pairwise_dispersion3(self, mol, trans, cutoff, r4r2, c6, energy)
    open (unit = 91, file = ".ATM", status="new")
    write(91, *) e_ATM
    close(91)
+   !$omp end critical (get_pairwise_dispersion3_)
+   deallocate(energy_local)
+   !$omp end parallel
 
 end subroutine get_pairwise_dispersion3
 

@@ -38,7 +38,7 @@ A more pythonic interface is provided in the ``dftd4.interface`` module which ca
    >>> res.update(**model.get_properties())  # also allows access to properties
    >>> res.get("c6 coefficients")[0, 0]
    1.5976689760849156
-   >>> res.get("polarizibilities")
+   >>> res.get("polarizabilities")
    array([ 1.97521745,  1.48512704,  7.33564674, 10.28920458,  1.99973802,
           22.85298573,  6.65877552, 15.39410319, 22.73119177, 22.86303028,
           14.56038118,  1.4815783 ,  3.91266859, 25.8236368 ,  1.93444627,
@@ -237,7 +237,7 @@ Now you are ready to use ``dftd4``, check if you can import it with
    >>> import dftd4
    >>> from dftd4.libdftd4 import get_api_version
    >>> get_api_version()
-   '3.4.0'
+   '4.0.1'
 
 
 Building the extension module
